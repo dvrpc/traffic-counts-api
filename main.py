@@ -1,13 +1,12 @@
-from typing import Any, Optional
 import datetime
-
-import oracledb
-
+import logging
+from typing import Any, Optional, List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+import oracledb
 from pydantic import BaseModel, Field
 
 from config import USER, PASSWORD
@@ -15,14 +14,56 @@ from config import USER, PASSWORD
 oracledb.defaults.config_dir = "."
 
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
+
+
 class Error(BaseModel):
     message: str
+
+
+# The field names in the Pydantic models below are the ones in the database.
+# They may be changed, to value in `alias`.
+
+
+class VolumeCount(BaseModel):
+    COUNTDATE: datetime.date = Field(alias="date")
+    TOTALCOUNT: Optional[int] = Field(alias="total")
+    WEATHER: Optional[str] = Field(alias="weather")
+    AM1: Optional[int]
+    AM2: Optional[int]
+    AM3: Optional[int]
+    AM4: Optional[int]
+    AM5: Optional[int]
+    AM6: Optional[int]
+    AM7: Optional[int]
+    AM8: Optional[int]
+    AM9: Optional[int]
+    AM10: Optional[int]
+    AM11: Optional[int]
+    AM12: Optional[int]
+    PM1: Optional[int]
+    PM2: Optional[int]
+    PM3: Optional[int]
+    PM4: Optional[int]
+    PM5: Optional[int]
+    PM6: Optional[int]
+    PM7: Optional[int]
+    PM8: Optional[int]
+    PM9: Optional[int]
+    PM10: Optional[int]
+    PM11: Optional[int]
+    PM12: Optional[int]
+
+    # this allows extracting by db name, but using alias
+    class Config:
+        allow_population_by_field_name = True
 
 
 class ReportRecord(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
     TYPE: Optional[str] = Field(alias="type")
-    SETDATE: Optional[datetime.date] = Field(alias="date")  # maybe date
+    SETDATE: Optional[datetime.date] = Field(alias="date")
     TAKENBY: Optional[str] = Field(alias="taken_by")
     COUNTERID: Optional[str] = Field(alias="counter_id")
     STATIONID: Optional[str] = Field(alias="station_id")
@@ -52,20 +93,13 @@ class ReportRecord(BaseModel):
     FC: Optional[int]
     SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
     WEATHER: Optional[str] = Field(alias="weather")
-    # county: Optional[str] = Field(alias="")
-    # count_data: List[ReportCountData]
+    volume_counts: Optional[List[VolumeCount]]
 
+    # this allows extracting by db name, but using alias
     class Config:
         allow_population_by_field_name = True
 
 
-class ReportCountData(BaseModel):
-    date: str
-    time: str
-    count: int
-
-
-# test3
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -122,6 +156,7 @@ def get_record_nums():
 def get_record(num: int) -> Any:
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
+            # get count metadata
             cursor = connection.cursor()
             cursor.execute("select * from DVRPCTC.TC_HEADER where RECORDNUM = :num", num=num)
 
@@ -129,8 +164,18 @@ def get_record(num: int) -> Any:
             # <https://python-oracledb.readthedocs.io/en/latest/user_guide/sql_execution.html#rowfactories>
             columns = [col[0] for col in cursor.description]
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
-            data = cursor.fetchone()
+            report_record = cursor.fetchone()
 
-    if data is None:
+            # get volume counts
+            cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
+            columns = [col[0] for col in cursor.description]
+            cursor.rowfactory = lambda *args: dict(zip(columns, args))
+            volume_data = cursor.fetchall()
+
+    if report_record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
-    return data
+
+    # add the volume counts
+    report_record["volume_counts"] = volume_data
+
+    return report_record
