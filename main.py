@@ -93,6 +93,7 @@ class ReportRecord(BaseModel):
     FC: Optional[int]
     SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
     WEATHER: Optional[str] = Field(alias="weather")
+    COMMENTS: Optional[str] = Field(alias="comments")
     volume_counts: Optional[List[VolumeCount]]
 
     # this allows extracting by db name, but using alias
