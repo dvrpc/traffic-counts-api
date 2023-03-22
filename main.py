@@ -1,13 +1,12 @@
 import datetime
 import logging
 from typing import Any, Optional, List
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 import oracledb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from config import USER, PASSWORD
 
@@ -25,8 +24,7 @@ class Error(BaseModel):
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
 
-
-class VolumeCount(BaseModel):
+class VehicleCount(BaseModel):
     COUNTDATE: datetime.date = Field(alias="date")
     TOTALCOUNT: Optional[int] = Field(alias="total")
     WEATHER: Optional[str] = Field(alias="weather")
@@ -55,12 +53,48 @@ class VolumeCount(BaseModel):
     PM11: Optional[int]
     PM12: Optional[int]
 
-    # this allows extracting by db name, but using alias
+    # this allows extracting by db field name, but using alias
     class Config:
         allow_population_by_field_name = True
 
+class PedestrianCount(BaseModel):
+    COUNTDATE: datetime.date = Field(alias="date")
+    COUNTTIME: datetime.datetime = Field(alias="time")
+    INCOUNT: Optional[int] = Field(alias="in_count")
+    OUTCOUNT: Optional[int] = Field(alias="out_count")
+    TOTAL: Optional[int] = Field(alias="total")
 
-class ReportRecord(BaseModel):
+    # convert bad year:correct time to just time
+    # (the database uses a date field but no date is included and so it defaults to 1899)
+    @validator('COUNTTIME')
+    def datetime_to_time(cls,v):
+        return v.time()
+
+    # this allows extracting by db field name, but using alias
+    class Config:
+        allow_population_by_field_name = True
+        
+
+class BicycleCount(BaseModel):
+    COUNTDATE: datetime.date = Field(alias="date")
+    COUNTTIME: datetime.datetime = Field(alias="time")
+    COUNT_MON: Optional[int] = Field(alias="month")
+    COUNT_WEEKDAY: Optional[int] = Field(alias="weekday")
+    COUNT_YR: Optional[int] = Field(alias="year")
+    INCOUNT: Optional[int] = Field(alias="in_count")
+    OUTCOUNT: Optional[int] = Field(alias="out_count")
+    TOTAL: Optional[int] = Field(alias="total")
+
+    # convert bad year:correct time to just time
+    # (the database uses a date field but no date is included and so it defaults to 1899)
+    @validator('COUNTTIME')
+    def datetime_to_time(cls,v):
+        return v.time()
+    # this allows extracting by db field name, but using alias
+    class Config:
+        allow_population_by_field_name = True
+
+class Record(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
     TYPE: Optional[str] = Field(alias="type")
     SETDATE: Optional[datetime.date] = Field(alias="date")
@@ -94,9 +128,12 @@ class ReportRecord(BaseModel):
     SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
     WEATHER: Optional[str] = Field(alias="weather")
     COMMENTS: Optional[str] = Field(alias="comments")
-    volume_counts: Optional[List[VolumeCount]]
+    # the type on counts is handled in queries, because Pydantic
+    # or this programmer isn't smart enough to figure out how to coerce into 
+    # correct one properly
+    counts: Any
 
-    # this allows extracting by db name, but using alias
+    # this allows extracting by db field name, but using alias
     class Config:
         allow_population_by_field_name = True
 
@@ -150,14 +187,48 @@ def get_record_nums():
 
 
 @app.get(
-    "/api/traffic-counts/v1/report/record/{num}",
+    "/api/traffic-counts/v1/record/{num}",
     responses=responses,
-    response_model=ReportRecord,
+    response_model=Record,
 )
 def get_record(num: int) -> Any:
+
+    # These are all the types in the TC_COUNTTYPE table. 
+    # Not yet sure exactly how they can be grouped.
+    """
+    15 min Volume
+    8 Day
+    Bicycle 1
+    Bicycle 2
+    Bicycle 3
+    Bicycle 4
+    Bicycle 5
+    Bicycle 6
+    Class
+    Crosswalk
+    Loop
+    Manual Class
+    Pedestrian
+    Pedestrian 2
+    Speed
+    Turning Movement
+    Volume
+    """
+    
+    bike_counts = [
+        "Bicycle 1",
+        "Bicycle 2",
+        "Bicycle 3",
+        "Bicycle 4",
+        "Bicycle 5",
+        "Bicycle 6",
+    ]
+
+    ped_counts = ["Pedestrian", "Pedestrian 2"]
+   
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
-            # get count metadata
+            # get overall count metadata
             cursor = connection.cursor()
             cursor.execute("select * from DVRPCTC.TC_HEADER where RECORDNUM = :num", num=num)
 
@@ -165,18 +236,48 @@ def get_record(num: int) -> Any:
             # <https://python-oracledb.readthedocs.io/en/latest/user_guide/sql_execution.html#rowfactories>
             columns = [col[0] for col in cursor.description]
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
-            report_record = cursor.fetchone()
+            record = cursor.fetchone()
 
-            # get volume counts
-            cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
-            columns = [col[0] for col in cursor.description]
-            cursor.rowfactory = lambda *args: dict(zip(columns, args))
-            volume_data = cursor.fetchall()
+            counts = []
 
-    if report_record is None:
+            # set table according to what type of overall count this is
+            # NOTE: BIKE and PED use "DVRPCNUM" for the id rather than "RECORDNUM"
+            if record["TYPE"] in bike_counts:
+                cursor.execute("select * from DVRPCTC.TC_BIKECOUNT where DVRPCNUM = :num", num=num)
+
+                # get individual counts
+                columns = [col[0] for col in cursor.description]
+                cursor.rowfactory = lambda *args: dict(zip(columns, args))
+                count = cursor.fetchall()
+                if count:
+                    for row in count:
+                        counts.append(BicycleCount(**row))
+
+            elif record["TYPE"] in ped_counts:
+                cursor.execute("select * from DVRPCTC.TC_PEDCOUNT where DVRPCNUM = :num", num=num)
+
+                # get individual counts
+                columns = [col[0] for col in cursor.description]
+                cursor.rowfactory = lambda *args: dict(zip(columns, args))
+                count = cursor.fetchall()
+                if count:
+                    for row in count:
+                        counts.append(PedestrianCount(**row))
+            else:
+                cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
+                
+                # get individual counts
+                columns = [col[0] for col in cursor.description]
+                cursor.rowfactory = lambda *args: dict(zip(columns, args))
+                count = cursor.fetchall()
+                if count:
+                    for row in count:
+                        counts.append(VehicleCount(**row))
+
+    if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
 
     # add the volume counts
-    report_record["volume_counts"] = volume_data
+    record["counts"] = counts
 
-    return report_record
+    return record
