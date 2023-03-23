@@ -127,6 +127,13 @@ class Record(BaseModel):
     FC: Optional[int]
     SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
     WEATHER: Optional[str] = Field(alias="weather")
+    AXLE: Optional[float]
+    FACTOR: Optional[float]
+    AADT: Optional[int]
+    AMPEAK: Optional[float]
+    AMENDING:Optional[str]
+    PMPEAK: Optional[float]
+    PMENDING: Optional[str]
     COMMENTS: Optional[str] = Field(alias="comments")
     # the type on counts is handled in queries, because Pydantic
     # or this programmer isn't smart enough to figure out how to coerce into 
