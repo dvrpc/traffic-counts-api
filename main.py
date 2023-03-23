@@ -17,9 +17,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 
 
-class Error(BaseModel):
-    message: str
-
 
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
@@ -145,27 +142,16 @@ class Record(BaseModel):
         allow_population_by_field_name = True
 
 
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    openapi_schema = get_openapi(
-        title="DVRPC Traffic Counts API",
-        version="1.0",
-        routes=app.routes,
-    )
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
+class Error(BaseModel):
+    message: str
 
 
 app = FastAPI(
-    openapi_url="/api/traffic-counts/v1/openapi.json", docs_url="/api/traffic-counts/v1/docs"
+    title="DVRPC Traffic Counts API",
+    version="1.0",
+    openapi_url="/api/traffic-counts/v1/openapi.json", 
+    docs_url="/api/traffic-counts/v1/docs",
 )
-app.openapi = custom_openapi
-responses = {
-    400: {"model": Error, "description": "Bad Request"},
-    404: {"model": Error, "description": "Not Found"},
-    500: {"model": Error, "description": "Internal Server Error"},
-}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -174,10 +160,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+responses = {
+    400: {"model": Error, "description": "Bad Request"},
+    404: {"model": Error, "description": "Not Found"},
+    500: {"model": Error, "description": "Internal Server Error"},
+}
+
 
 @app.get(
     "/api/traffic-counts/v1/records",
-    responses=responses,
+    responses=responses, # type: ignore
 )
 def get_record_nums():
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
@@ -195,7 +187,7 @@ def get_record_nums():
 
 @app.get(
     "/api/traffic-counts/v1/record/{num}",
-    responses=responses,
+    responses=responses, # type: ignore
     response_model=Record,
 )
 def get_record(num: int) -> Any:
@@ -269,7 +261,7 @@ def get_record(num: int) -> Any:
                 count = cursor.fetchall()
                 if count:
                     for row in count:
-                        counts.append(PedestrianCount(**row))
+                        counts.append(PedestrianCount(**row))  # type: ignore
             else:
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
                 
@@ -279,7 +271,7 @@ def get_record(num: int) -> Any:
                 count = cursor.fetchall()
                 if count:
                     for row in count:
-                        counts.append(VehicleCount(**row))
+                        counts.append(VehicleCount(**row))  # type: ignore
 
     if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
