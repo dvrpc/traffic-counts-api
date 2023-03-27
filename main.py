@@ -16,8 +16,6 @@ oracledb.defaults.config_dir = "."
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 
-
-
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
 
@@ -71,25 +69,6 @@ class PedestrianCount(BaseModel):
     class Config:
         allow_population_by_field_name = True
         
-
-class BicycleCount(BaseModel):
-    COUNTDATE: datetime.date = Field(alias="date")
-    COUNTTIME: datetime.datetime = Field(alias="time")
-    COUNT_MON: Optional[int] = Field(alias="month")
-    COUNT_WEEKDAY: Optional[int] = Field(alias="weekday")
-    COUNT_YR: Optional[int] = Field(alias="year")
-    INCOUNT: Optional[int] = Field(alias="in_count")
-    OUTCOUNT: Optional[int] = Field(alias="out_count")
-    TOTAL: Optional[int] = Field(alias="total")
-
-    # convert bad year:correct time to just time
-    # (the database uses a date field but no date is included and so it defaults to 1899)
-    @validator('COUNTTIME')
-    def datetime_to_time(cls,v):
-        return v.time()
-    # this allows extracting by db field name, but using alias
-    class Config:
-        allow_population_by_field_name = True
 
 class Record(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
@@ -224,6 +203,33 @@ def get_record(num: int) -> Any:
     ]
 
     ped_counts = ["Pedestrian", "Pedestrian 2"]
+
+    am_pm_map = {
+        "12": "AM12",
+        "01": "AM1",
+        "02": "AM2",
+        "03": "AM3",
+        "04": "AM4",
+        "05": "AM5",
+        "06": "AM6",
+        "07": "AM7",
+        "08": "AM8",
+        "09": "AM9",
+        "10": "AM10",
+        "11": "AM11",
+        "12": "PM12",
+        "13": "PM1",
+        "14": "PM2",
+        "15": "PM3",
+        "16": "PM4",
+        "17": "PM5",
+        "18": "PM6",
+        "19": "PM7",
+        "20": "PM8",
+        "21": "PM9",
+        "22": "PM10",
+        "23": "PM11",
+    }
    
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
@@ -242,15 +248,50 @@ def get_record(num: int) -> Any:
             # set table according to what type of overall count this is
             # NOTE: BIKE and PED use "DVRPCNUM" for the id rather than "RECORDNUM"
             if record["TYPE"] in bike_counts:
-                cursor.execute("select * from DVRPCTC.TC_BIKECOUNT where DVRPCNUM = :num", num=num)
-
-                # get individual counts
+                cursor.execute("""
+                    SELECT 
+                        TO_CHAR(COUNTDATE, 'YYYY-MM-DD') as count_date, 
+                        TO_CHAR(COUNTTIME, 'HH24') as HOUR,
+                        SUM(total) AS total
+                    FROM DVRPCTC.TC_BIKECOUNT 
+                    WHERE dvrpcnum = :num 
+                    GROUP BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24') 
+                    ORDER BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24')
+                """, num=num
+                )
                 columns = [col[0] for col in cursor.description]
                 cursor.rowfactory = lambda *args: dict(zip(columns, args))
                 count = cursor.fetchall()
+
+                # that returns a list of dicts in the form
+                # {countdate, hour, total}
+                # need to transform into unique dates with am1-pm12 hours:
+                # {date: { am1, am2, ... pm12 ... pm11, total}}
+
+                bicycle_counts = {}
                 if count:
                     for row in count:
-                        counts.append(BicycleCount(**row))
+                        # start new dict
+                        if not bicycle_counts.get(row["COUNT_DATE"]):
+                            bicycle_counts[row["COUNT_DATE"]] = {}
+
+                        # now that we have a key for this date,
+                        # we can populate the total by hour
+                        for k,v in am_pm_map.items():
+                            if row["HOUR"] == k:
+                                bicycle_counts[row["COUNT_DATE"]][v] = row["TOTAL"]
+
+                    # now sum total by day
+                    for date, count in bicycle_counts.items():
+                        total = 0
+                        for k2, v2 in count.items():
+                            if type(v2) == int:
+                                total += v2
+                        bicycle_counts[date]["total"] = total
+
+                # FIXME: weather and temp still need to be added
+                
+                counts = bicycle_counts
 
             elif record["TYPE"] in ped_counts:
                 cursor.execute("select * from DVRPCTC.TC_PEDCOUNT where DVRPCNUM = :num", num=num)
