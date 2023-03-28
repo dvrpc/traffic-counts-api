@@ -176,7 +176,7 @@ def get_record(num: int) -> Any:
     Volume
     """
 
-    bike_counts = [
+    bicycle_count_type_names = [
         "Bicycle 1",
         "Bicycle 2",
         "Bicycle 3",
@@ -185,7 +185,7 @@ def get_record(num: int) -> Any:
         "Bicycle 6",
     ]
 
-    ped_counts = ["Pedestrian", "Pedestrian 2"]
+    pedestrian_count_type_names = ["Pedestrian", "Pedestrian 2"]
 
     am_pm_map = {
         "12": "AM12",
@@ -230,7 +230,7 @@ def get_record(num: int) -> Any:
 
             # set table according to what type of overall count this is
             # NOTE: BIKE and PED use "DVRPCNUM" for the id rather than "RECORDNUM"
-            if record["TYPE"] in bike_counts:
+            if record["TYPE"] in bicycle_count_type_names:
                 cursor.execute(
                     """
                     SELECT
@@ -293,7 +293,7 @@ def get_record(num: int) -> Any:
 
                 counts = bicycle_counts
 
-            elif record["TYPE"] in ped_counts:
+            elif record["TYPE"] in pedestrian_count_type_names:
                 cursor.execute(
                     """
                     SELECT
