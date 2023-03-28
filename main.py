@@ -21,9 +21,6 @@ logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 
 
 class VehicleCount(BaseModel):
-    COUNTDATE: datetime.date = Field(alias="date")
-    TOTALCOUNT: Optional[int] = Field(alias="total")
-    WEATHER: Optional[str] = Field(alias="weather")
     AM1: Optional[int]
     AM2: Optional[int]
     AM3: Optional[int]
@@ -48,6 +45,10 @@ class VehicleCount(BaseModel):
     PM10: Optional[int]
     PM11: Optional[int]
     PM12: Optional[int]
+    TOTALCOUNT: Optional[int] = Field(alias="total")
+    WEATHER: Optional[str] = Field(alias="weather")
+    HIGHTEMP: Optional[str] = Field(alias="high_temp")
+    LOWTEMP: Optional[str] = Field(alias="low_temp")
 
     # this allows extracting by db field name, but using alias
     class Config:
@@ -226,7 +227,7 @@ def get_record(num: int) -> Any:
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
             record = cursor.fetchone()
 
-            counts = []
+            counts = {}  # type: ignore
 
             # set table according to what type of overall count this is
             # NOTE: BIKE and PED use "DVRPCNUM" for the id rather than "RECORDNUM"
@@ -253,26 +254,24 @@ def get_record(num: int) -> Any:
                 # need to transform into unique dates with am1-pm12 hours:
                 # {date: { am1, am2, ... pm12 ... pm11, total}}
 
-                bicycle_counts = {}
                 if count:
                     for row in count:
                         # create new entry if it doesn't yet exist
-                        if not bicycle_counts.get(row["COUNT_DATE"]):
-                            bicycle_counts[row["COUNT_DATE"]] = {}
+                        if not counts.get(row["COUNT_DATE"]):
+                            counts[row["COUNT_DATE"]] = {}
 
                         # populate the total by hour
                         for k, v in am_pm_map.items():
                             if row["HOUR"] == k:
-                                bicycle_counts[row["COUNT_DATE"]][v] = row["TOTAL"]
+                                counts[row["COUNT_DATE"]][v] = row["TOTAL"]
 
                     # sum total by day, get weather and temps
-                    for count_date, count in bicycle_counts.items():
-                        logger.info(count_date)
+                    for count_date, count in counts.items():
                         total = 0
                         for k2, v2 in count.items():
                             if type(v2) == int:
                                 total += v2
-                        bicycle_counts[count_date]["total"] = total
+                        counts[count_date]["total"] = total
 
                         cursor.execute(
                             """
@@ -287,11 +286,9 @@ def get_record(num: int) -> Any:
                         weather_count = cursor.fetchone()
 
                         if weather_count:
-                            bicycle_counts[count_date]["weather"] = weather_count["WEATHER"]
-                            bicycle_counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
-                            bicycle_counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
-
-                counts = bicycle_counts
+                            counts[count_date]["weather"] = weather_count["WEATHER"]
+                            counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
+                            counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
 
             elif record["TYPE"] in pedestrian_count_type_names:
                 cursor.execute(
@@ -315,26 +312,24 @@ def get_record(num: int) -> Any:
                 # {countdate, hour, total}
                 # need to transform into unique dates with am1-pm12 hours:
                 # {date: { am1, am2, ... pm12 ... pm11, total}}
-                pedestrian_counts = {}
                 if count:
                     for row in count:
                         # create new entry if it doesn't yet exist
-                        if not pedestrian_counts.get(row["COUNT_DATE"]):
-                            pedestrian_counts[row["COUNT_DATE"]] = {}
+                        if not counts.get(row["COUNT_DATE"]):
+                            counts[row["COUNT_DATE"]] = {}
 
                         # populate the total by hour
                         for k, v in am_pm_map.items():
                             if row["HOUR"] == k:
-                                pedestrian_counts[row["COUNT_DATE"]][v] = row["TOTAL"]
+                                counts[row["COUNT_DATE"]][v] = row["TOTAL"]
 
                     # sum total by day, get weather and temps
-                    for count_date, count in pedestrian_counts.items():
-                        logger.info(count_date)
+                    for count_date, count in counts.items():
                         total = 0
                         for k2, v2 in count.items():
                             if type(v2) == int:
                                 total += v2
-                        pedestrian_counts[count_date]["total"] = total
+                        counts[count_date]["total"] = total
 
                         cursor.execute(
                             """
@@ -349,11 +344,9 @@ def get_record(num: int) -> Any:
                         weather_count = cursor.fetchone()
 
                         if weather_count:
-                            pedestrian_counts[count_date]["weather"] = weather_count["WEATHER"]
-                            pedestrian_counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
-                            pedestrian_counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
-
-                counts = pedestrian_counts
+                            counts[count_date]["weather"] = weather_count["WEATHER"]
+                            counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
+                            counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
 
             else:
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
@@ -364,7 +357,23 @@ def get_record(num: int) -> Any:
                 count = cursor.fetchall()
                 if count:
                     for row in count:
-                        counts.append(VehicleCount(**row))  # type: ignore
+                        date = row["COUNTDATE"].date()
+                        counts[date] = VehicleCount(**row)
+
+                        cursor.execute(
+                            """
+                            SELECT * FROM DVRPCTC.TC_WEATHER
+                            WHERE COUNTDATE = TO_DATE(:count_date, 'yyyy-mm-dd')
+                        """,
+                            count_date=row["COUNTDATE"],
+                        )
+
+                        columns = [col[0] for col in cursor.description]
+                        cursor.rowfactory = lambda *args: dict(zip(columns, args))
+                        weather_count = cursor.fetchone()
+
+                        if weather_count:
+                            counts[date] = VehicleCount(**weather_count)
 
     if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
