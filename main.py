@@ -229,7 +229,6 @@ def get_record(num: int) -> Any:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
 
             record = Record(**record_data)
-            counts = {}  # type: ignore
 
             # Get individual counts of the overall count
 
@@ -262,6 +261,8 @@ def get_record(num: int) -> Any:
                 # {countdate, hour, total}
                 # create an intermediate dict of dicts to combine all hours/total by date
                 # {date: { am1, am2, ... pm12 ... pm11, total}}
+
+                counts = {}  # type: ignore
 
                 if count_data:
                     for row in count_data:
