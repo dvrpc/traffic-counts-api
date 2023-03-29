@@ -1,17 +1,17 @@
 import datetime
 import logging
 from typing import Any, Optional, List
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 import oracledb
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 from config import USER, PASSWORD
 
 oracledb.defaults.config_dir = "."
-
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
@@ -20,7 +20,9 @@ logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 # They may be changed, to value in `alias`.
 
 
-class VehicleCount(BaseModel):
+class Count(BaseModel):
+    COUNTDATE: datetime.date = Field(alias="date")
+    AM12: Optional[int]
     AM1: Optional[int]
     AM2: Optional[int]
     AM3: Optional[int]
@@ -32,7 +34,7 @@ class VehicleCount(BaseModel):
     AM9: Optional[int]
     AM10: Optional[int]
     AM11: Optional[int]
-    AM12: Optional[int]
+    PM12: Optional[int]
     PM1: Optional[int]
     PM2: Optional[int]
     PM3: Optional[int]
@@ -44,7 +46,6 @@ class VehicleCount(BaseModel):
     PM9: Optional[int]
     PM10: Optional[int]
     PM11: Optional[int]
-    PM12: Optional[int]
     TOTALCOUNT: Optional[int] = Field(alias="total")
     WEATHER: Optional[str] = Field(alias="weather")
     HIGHTEMP: Optional[str] = Field(alias="high_temp")
@@ -91,15 +92,12 @@ class Record(BaseModel):
     AXLE: Optional[float]
     FACTOR: Optional[float]
     AADT: Optional[int]
-    AMPEAK: Optional[float]
-    AMENDING: Optional[str]
-    PMPEAK: Optional[float]
-    PMENDING: Optional[str]
+    AMPEAK: Optional[float] = Field(alias="am_peak")
+    AMENDING: Optional[str] = Field(alias="am_ending")
+    PMPEAK: Optional[float] = Field(alias="pm_peak")
+    PMENDING: Optional[str] = Field(alias="pm_ending")
     COMMENTS: Optional[str] = Field(alias="comments")
-    # the type on counts is handled in queries, because Pydantic
-    # or this programmer isn't smart enough to figure out how to coerce into
-    # correct one properly
-    counts: Any
+    counts: List[Count] = []
 
     # this allows extracting by db field name, but using alias
     class Config:
@@ -189,7 +187,7 @@ def get_record(num: int) -> Any:
     pedestrian_count_type_names = ["Pedestrian", "Pedestrian 2"]
 
     am_pm_map = {
-        "12": "AM12",
+        "00": "AM12",
         "01": "AM1",
         "02": "AM2",
         "03": "AM3",
@@ -225,37 +223,48 @@ def get_record(num: int) -> Any:
             # <https://python-oracledb.readthedocs.io/en/latest/user_guide/sql_execution.html#rowfactories>
             columns = [col[0] for col in cursor.description]
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
-            record = cursor.fetchone()
+            record_data = cursor.fetchone()
 
+            if record_data is None:
+                return JSONResponse(status_code=404, content={"message": "Record not found"})
+
+            record = Record(**record_data)
             counts = {}  # type: ignore
 
-            # set table according to what type of overall count this is
-            # NOTE: BIKE and PED use "DVRPCNUM" for the id rather than "RECORDNUM"
-            if record["TYPE"] in bicycle_count_type_names:
+            # Get individual counts of the overall count
+
+            # TC_BIKECOUNT and TC_PEDCOUNT tables have same structure
+            if record_data["TYPE"] in (bicycle_count_type_names + pedestrian_count_type_names):
+                if record_data["TYPE"] in bicycle_count_type_names:
+                    tc_table = "DVRPCTC.TC_BIKECOUNT"
+                if record_data["TYPE"] in pedestrian_count_type_names:
+                    tc_table = "DVRPCTC.TC_PEDCOUNT"
+
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         TO_CHAR(COUNTDATE, 'YYYY-MM-DD') as count_date,
                         TO_CHAR(COUNTTIME, 'HH24') as HOUR,
                         SUM(total) AS total
-                    FROM DVRPCTC.TC_BIKECOUNT
+                    FROM {tc_table}
                     WHERE dvrpcnum = :num
                     GROUP BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24')
                     ORDER BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24')
                 """,
                     num=num,
                 )
+
                 columns = [col[0] for col in cursor.description]
                 cursor.rowfactory = lambda *args: dict(zip(columns, args))
-                count = cursor.fetchall()
+                count_data = cursor.fetchall()
 
                 # that returns a list of dicts in the form
                 # {countdate, hour, total}
-                # need to transform into unique dates with am1-pm12 hours:
+                # create an intermediate dict of dicts to combine all hours/total by date
                 # {date: { am1, am2, ... pm12 ... pm11, total}}
 
-                if count:
-                    for row in count:
+                if count_data:
+                    for row in count_data:
                         # create new entry if it doesn't yet exist
                         if not counts.get(row["COUNT_DATE"]):
                             counts[row["COUNT_DATE"]] = {}
@@ -290,76 +299,19 @@ def get_record(num: int) -> Any:
                             counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
                             counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
 
-            elif record["TYPE"] in pedestrian_count_type_names:
-                cursor.execute(
-                    """
-                    SELECT
-                        TO_CHAR(COUNTDATE, 'YYYY-MM-DD') as count_date,
-                        TO_CHAR(COUNTTIME, 'HH24') as HOUR,
-                        SUM(total) AS total
-                    FROM DVRPCTC.TC_PEDCOUNT
-                    WHERE dvrpcnum = :num
-                    GROUP BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24')
-                    ORDER BY COUNTDATE, TO_CHAR( COUNTTIME, 'HH24')
-                    """,
-                    num=num,
-                )
-                columns = [col[0] for col in cursor.description]
-                cursor.rowfactory = lambda *args: dict(zip(columns, args))
-                count = cursor.fetchall()
+                # change this dict of dicts into list of Counts and add to record
+                record.counts = [Count(COUNTDATE=k, **v) for k, v in counts.items()]
 
-                # that returns a list of dicts in the form
-                # {countdate, hour, total}
-                # need to transform into unique dates with am1-pm12 hours:
-                # {date: { am1, am2, ... pm12 ... pm11, total}}
-                if count:
-                    for row in count:
-                        # create new entry if it doesn't yet exist
-                        if not counts.get(row["COUNT_DATE"]):
-                            counts[row["COUNT_DATE"]] = {}
-
-                        # populate the total by hour
-                        for k, v in am_pm_map.items():
-                            if row["HOUR"] == k:
-                                counts[row["COUNT_DATE"]][v] = row["TOTAL"]
-
-                    # sum total by day, get weather and temps
-                    for count_date, count in counts.items():
-                        total = 0
-                        for k2, v2 in count.items():
-                            if type(v2) == int:
-                                total += v2
-                        counts[count_date]["total"] = total
-
-                        cursor.execute(
-                            """
-                            SELECT * FROM DVRPCTC.TC_WEATHER
-                            WHERE COUNTDATE = TO_DATE(:count_date, 'yyyy-mm-dd')
-                        """,
-                            count_date=count_date,
-                        )
-
-                        columns = [col[0] for col in cursor.description]
-                        cursor.rowfactory = lambda *args: dict(zip(columns, args))
-                        weather_count = cursor.fetchone()
-
-                        if weather_count:
-                            counts[count_date]["weather"] = weather_count["WEATHER"]
-                            counts[count_date]["high_temp"] = weather_count["HIGHTEMP"]
-                            counts[count_date]["low_temp"] = weather_count["LOWTEMP"]
-
+            # TC_VOLCOUNT has a different structure
+            # There's no reshaping here because it's already the same as Count
             else:
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
-
-                # get individual counts
                 columns = [col[0] for col in cursor.description]
                 cursor.rowfactory = lambda *args: dict(zip(columns, args))
-                count = cursor.fetchall()
-                if count:
-                    for row in count:
-                        date = row["COUNTDATE"].date()
-                        counts[date] = VehicleCount(**row)
+                count_data = cursor.fetchall()
 
+                if count_data:
+                    for row in count_data:
                         cursor.execute(
                             """
                             SELECT * FROM DVRPCTC.TC_WEATHER
@@ -373,12 +325,9 @@ def get_record(num: int) -> Any:
                         weather_count = cursor.fetchone()
 
                         if weather_count:
-                            counts[date] = VehicleCount(**weather_count)
-
-    if record is None:
-        return JSONResponse(status_code=404, content={"message": "Record not found"})
-
-    # add the volume counts
-    record["counts"] = counts
+                            row["weather"] = weather_count["WEATHER"]
+                            row["high_temp"] = weather_count["HIGHTEMP"]
+                            row["low_temp"] = weather_count["LOWTEMP"]
+                        record.counts.append(Count(**row))
 
     return record
