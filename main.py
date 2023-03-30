@@ -1,11 +1,12 @@
 import datetime
 import logging
+from pathlib import Path
 from typing import Any, Optional, List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import oracledb
 from pydantic import BaseModel, Field
 
@@ -129,52 +130,7 @@ responses = {
 }
 
 
-@app.get(
-    "/api/traffic-counts/v1/records",
-    responses=responses,  # type: ignore
-)
-def get_record_nums():
-    with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
-        with connection.cursor() as cursor:
-            cursor = connection.cursor()
-            cursor.execute("select RECORDNUM from DVRPCTC.TC_HEADER")
-            res = cursor.fetchall()
-
-    records = []
-    for row in res:
-        records.append(row[0])
-
-    return records
-
-
-@app.get(
-    "/api/traffic-counts/v1/record/{num}",
-    responses=responses,  # type: ignore
-    response_model=Record,
-)
-def get_record(num: int) -> Any:
-    # These are all the types in the TC_COUNTTYPE table.
-    # Not yet sure exactly how they can be grouped.
-    """
-    15 min Volume
-    8 Day
-    Bicycle 1
-    Bicycle 2
-    Bicycle 3
-    Bicycle 4
-    Bicycle 5
-    Bicycle 6
-    Class
-    Crosswalk
-    Loop
-    Manual Class
-    Pedestrian
-    Pedestrian 2
-    Speed
-    Turning Movement
-    Volume
-    """
-
+def get_record(num: int) -> Optional[Record]:
     bicycle_count_type_names = [
         "Bicycle 1",
         "Bicycle 2",
@@ -226,7 +182,7 @@ def get_record(num: int) -> Any:
             record_data = cursor.fetchone()
 
             if record_data is None:
-                return JSONResponse(status_code=404, content={"message": "Record not found"})
+                return None
 
             record = Record(**record_data)
 
@@ -332,3 +288,63 @@ def get_record(num: int) -> Any:
                         record.counts.append(Count(**row))
 
     return record
+
+
+@app.get(
+    "/api/traffic-counts/v1/records",
+    responses=responses,  # type: ignore
+)
+def get_record_nums():
+    with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
+        with connection.cursor() as cursor:
+            cursor = connection.cursor()
+            cursor.execute("select RECORDNUM from DVRPCTC.TC_HEADER")
+            res = cursor.fetchall()
+
+    records = []
+    for row in res:
+        records.append(row[0])
+
+    return records
+
+
+@app.get(
+    "/api/traffic-counts/v1/record/csv/{num}",
+    responses=responses,  # type: ignore
+    response_model=Record,
+)
+def get_record_csv(num: int) -> Any:
+    # create csv/ folder if it doesn't exist
+    try:
+        Path("csv").mkdir()
+    except FileExistsError:
+        pass
+
+    csv_file = Path(f"csv/{num}.csv")
+
+    if csv_file.exists():
+        return FileResponse(csv_file)
+
+    # otherwise, fetch the data from the database
+    record = get_record(num)
+
+    # if not found, return 404
+    if record is None:
+        return JSONResponse(status_code=404, content={"message": "Record not found"})
+
+    # if record was found, create csv from record and store it in the csv/ directory
+
+    return JSONResponse(status_code=404, content={"message": "todo"})
+
+
+@app.get(
+    "/api/traffic-counts/v1/record/{num}",
+    responses=responses,  # type: ignore
+    response_model=Record,
+)
+def get_record_json(num: int) -> Any:
+    record = get_record(num)
+
+    if record is None:
+        return JSONResponse(status_code=404, content={"message": "Record not found"})
+    return get_record(num)
