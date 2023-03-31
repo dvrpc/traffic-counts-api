@@ -1,7 +1,8 @@
 import datetime
+from enum import Enum
 import logging
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Union
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +20,31 @@ logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
+
+
+class BicycleCountKind(str, Enum):
+    bicycle1 = "Bicycle 1"
+    bicycle2 = "Bicycle 2"
+    bicycle3 = "Bicycle 3"
+    bicycle4 = "Bicycle 4"
+    bicycle5 = "Bicycle 5"
+    bicycle6 = "Bicycle 6"
+
+
+class PedestrianCountKind(str, Enum):
+    pedestrian = "Pedestrian"
+    pedestrian2 = "Pedestrian 2"
+    crosswalk = "Crosswalk"
+
+
+class VehicleCountKind(str, Enum):
+    volume = "Volume"
+
+
+class CountKind(str, Enum):
+    vehicle = "vehicle"
+    bicycle = "bicycle"
+    pedestrian = "pedestrian"
 
 
 class Count(BaseModel):
@@ -59,7 +85,10 @@ class Count(BaseModel):
 
 class Record(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
-    TYPE: Optional[str] = Field(alias="type")
+    count_type: Optional[CountKind]
+    TYPE: Optional[Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind]] = Field(
+        alias="count_sub_type"
+    )
     SETDATE: Optional[datetime.date] = Field(alias="date")
     TAKENBY: Optional[str] = Field(alias="taken_by")
     COUNTERID: Optional[str] = Field(alias="counter_id")
@@ -131,17 +160,6 @@ responses = {
 
 
 def get_record(num: int) -> Optional[Record]:
-    bicycle_count_type_names = [
-        "Bicycle 1",
-        "Bicycle 2",
-        "Bicycle 3",
-        "Bicycle 4",
-        "Bicycle 5",
-        "Bicycle 6",
-    ]
-
-    pedestrian_count_type_names = ["Pedestrian", "Pedestrian 2"]
-
     am_pm_map = {
         "00": "AM12",
         "01": "AM1",
@@ -189,11 +207,17 @@ def get_record(num: int) -> Optional[Record]:
             # Get individual counts of the overall count
 
             # TC_BIKECOUNT and TC_PEDCOUNT tables have same structure
-            if record_data["TYPE"] in (bicycle_count_type_names + pedestrian_count_type_names):
-                if record_data["TYPE"] in bicycle_count_type_names:
+            if record_data["TYPE"] in (
+                [each.value for each in BicycleCountKind]
+                + [each.value for each in PedestrianCountKind]
+            ):
+                if record_data["TYPE"] in [each.value for each in BicycleCountKind]:
                     tc_table = "DVRPCTC.TC_BIKECOUNT"
-                if record_data["TYPE"] in pedestrian_count_type_names:
+                    record.count_type = CountKind.bicycle
+
+                if record_data["TYPE"] in [each.value for each in PedestrianCountKind]:
                     tc_table = "DVRPCTC.TC_PEDCOUNT"
+                    record.count_type = CountKind.pedestrian
 
                 cursor.execute(
                     f"""
@@ -262,6 +286,7 @@ def get_record(num: int) -> Optional[Record]:
             # TC_VOLCOUNT has a different structure
             # There's no reshaping here because it's already the same as Count
             else:
+                record.count_type = CountKind.vehicle
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
                 columns = [col[0] for col in cursor.description]
                 cursor.rowfactory = lambda *args: dict(zip(columns, args))
