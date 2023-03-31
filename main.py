@@ -1,3 +1,4 @@
+import csv
 import datetime
 from enum import Enum
 import logging
@@ -347,19 +348,27 @@ def get_record_csv(num: int) -> Any:
 
     csv_file = Path(f"csv/{num}.csv")
 
-    if csv_file.exists():
-        return FileResponse(csv_file)
+    # FIXME: uncomment this once the metadata gets written properly to the CSV
+    # if csv_file.exists():
+    #     return FileResponse(csv_file)
 
     # otherwise, fetch the data from the database
+
     record = get_record(num)
 
-    # if not found, return 404
     if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
 
-    # if record was found, create csv from record and store it in the csv/ directory
+    # create CSV, save it, return it
+    fieldnames = list(Count.schema()["properties"].keys())
+    logger.info(fieldnames)
+    with open(csv_file, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for count in record.counts:
+            writer.writerow(count.dict(by_alias=True))
 
-    return JSONResponse(status_code=404, content={"message": "todo"})
+    return FileResponse(csv_file)
 
 
 @app.get(
