@@ -11,6 +11,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, FileResponse
 import oracledb
 from pydantic import BaseModel, Field
+from pydantic.error_wrappers import ValidationError
 
 from config import USER, PASSWORD
 
@@ -21,6 +22,12 @@ logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
 
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
+
+
+# there are 17 counttypes in the TC_COUNTTYPE table. These are grouped below into various
+# CountKinds according to their structure (or excluded altogether if not in database, which
+# is the NotInDatabaseCountKind), and then grouped into the categories we ulimately want -
+# vehicle, bicycle, or pedestrian
 
 
 class BicycleCountKind(str, Enum):
@@ -35,17 +42,30 @@ class BicycleCountKind(str, Enum):
 class PedestrianCountKind(str, Enum):
     pedestrian = "Pedestrian"
     pedestrian2 = "Pedestrian 2"
-    crosswalk = "Crosswalk"
 
 
+# "* Day" and "Loop" are currently being recategorized into one of the others in this class
 class VehicleCountKind(str, Enum):
     volume = "Volume"
+    fifteen_min_volume = "15 min Volume"
+    _class = "Class"
+    speed = "Speed"
+    eight_day = "8 Day"
+    loop = "Loop"
+
+
+# individual counts not in database
+class NotInDatabaseCountKind(str, Enum):
+    turning_movement = "Turning Movement"
+    manual_class = "Manual Class"
+    crosswalk = "Crosswalk"
 
 
 class CountKind(str, Enum):
     vehicle = "vehicle"
     bicycle = "bicycle"
     pedestrian = "pedestrian"
+    no_data = "count data not in database"
 
 
 class Count(BaseModel):
@@ -87,9 +107,9 @@ class Count(BaseModel):
 class Record(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
     count_type: Optional[CountKind]
-    TYPE: Optional[Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind]] = Field(
-        alias="count_sub_type"
-    )
+    TYPE: Optional[
+        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
+    ] = Field(alias="count_sub_type")
     SETDATE: Optional[datetime.date] = Field(alias="date")
     TAKENBY: Optional[str] = Field(alias="taken_by")
     COUNTERID: Optional[str] = Field(alias="counter_id")
@@ -203,7 +223,10 @@ def get_record(num: int) -> Optional[Record]:
             if record_data is None:
                 return None
 
-            record = Record(**record_data)
+            try:
+                record = Record(**record_data)
+            except ValidationError:
+                raise
 
             # Get individual counts of the overall count
 
@@ -286,7 +309,7 @@ def get_record(num: int) -> Optional[Record]:
 
             # TC_VOLCOUNT has a different structure
             # There's no reshaping here because it's already the same as Count
-            else:
+            elif record_data["TYPE"] in [each.value for each in VehicleCountKind]:
                 record.count_type = CountKind.vehicle
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
                 columns = [col[0] for col in cursor.description]
@@ -312,6 +335,8 @@ def get_record(num: int) -> Optional[Record]:
                             row["high_temp"] = weather_count["HIGHTEMP"]
                             row["low_temp"] = weather_count["LOWTEMP"]
                         record.counts.append(Count(**row))
+            elif record_data["TYPE"] in [each.value for each in NotInDatabaseCountKind]:
+                record.count_type = CountKind.no_data
 
     return record
 
@@ -353,8 +378,10 @@ def get_record_csv(num: int) -> Any:
     #     return FileResponse(csv_file)
 
     # otherwise, fetch the data from the database
-
-    record = get_record(num)
+    try:
+        record = get_record(num)
+    except ValidationError:
+        return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
     if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
@@ -377,8 +404,12 @@ def get_record_csv(num: int) -> Any:
     response_model=Record,
 )
 def get_record_json(num: int) -> Any:
-    record = get_record(num)
+    try:
+        record = get_record(num)
+    except ValidationError:
+        return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
     if record is None:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
-    return get_record(num)
+
+    return record
