@@ -18,7 +18,7 @@ from config import USER, PASSWORD
 oracledb.defaults.config_dir = "."
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename="api.log", encoding="utf-8", level=logging.DEBUG)
+logging.basicConfig(filename="api.log", level=logging.DEBUG)
 
 # The field names in the Pydantic models below are the ones in the database.
 # They may be changed, to value in `alias`.
@@ -388,7 +388,6 @@ def get_record_csv(num: int) -> Any:
 
     # create CSV, save it, return it
     fieldnames = list(Count.schema()["properties"].keys())
-    logger.info(fieldnames)
     with open(csv_file, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
