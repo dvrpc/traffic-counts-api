@@ -110,6 +110,7 @@ class Record(BaseModel):
     TYPE: Optional[
         Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
     ] = Field(alias="count_sub_type")
+    static_pdf: Optional[str]
     SETDATE: Optional[datetime.date] = Field(alias="date")
     TAKENBY: Optional[str] = Field(alias="taken_by")
     COUNTERID: Optional[str] = Field(alias="counter_id")
@@ -231,15 +232,15 @@ def get_record(num: int) -> Optional[Record]:
             # Get individual counts of the overall count
 
             # TC_BIKECOUNT and TC_PEDCOUNT tables have same structure
-            if record_data["TYPE"] in (
+            if record.TYPE in (
                 [each.value for each in BicycleCountKind]
                 + [each.value for each in PedestrianCountKind]
             ):
-                if record_data["TYPE"] in [each.value for each in BicycleCountKind]:
+                if record.TYPE in [each.value for each in BicycleCountKind]:
                     tc_table = "DVRPCTC.TC_BIKECOUNT"
                     record.count_type = CountKind.bicycle
 
-                if record_data["TYPE"] in [each.value for each in PedestrianCountKind]:
+                if record.TYPE in [each.value for each in PedestrianCountKind]:
                     tc_table = "DVRPCTC.TC_PEDCOUNT"
                     record.count_type = CountKind.pedestrian
 
@@ -309,7 +310,7 @@ def get_record(num: int) -> Optional[Record]:
 
             # TC_VOLCOUNT has a different structure
             # There's no reshaping here because it's already the same as Count
-            elif record_data["TYPE"] in [each.value for each in VehicleCountKind]:
+            elif record.TYPE in [each.value for each in VehicleCountKind]:
                 record.count_type = CountKind.vehicle
                 cursor.execute("select * from DVRPCTC.TC_VOLCOUNT where RECORDNUM = :num", num=num)
                 columns = [col[0] for col in cursor.description]
@@ -335,8 +336,12 @@ def get_record(num: int) -> Optional[Record]:
                             row["high_temp"] = weather_count["HIGHTEMP"]
                             row["low_temp"] = weather_count["LOWTEMP"]
                         record.counts.append(Count(**row))
-            elif record_data["TYPE"] in [each.value for each in NotInDatabaseCountKind]:
+            elif record.TYPE in [each.value for each in NotInDatabaseCountKind]:
+                # these are not in the database but just in static pdf
                 record.count_type = CountKind.no_data
+                # the subtype in the url is just the value of TYPE without spaces
+                sub_type_in_url = record.TYPE.value.replace(" ", "")
+                record.static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{record.RECORDNUM}.PDF"
 
     return record
 
