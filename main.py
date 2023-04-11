@@ -128,6 +128,9 @@ class Record(BaseModel):
     LATITUDE: Optional[float] = Field(alias="latitude")
     LONGITUDE: Optional[float] = Field(alias="longitude")
     MCD: Optional[str]
+    municipality: Optional[str]
+    county: Optional[str]
+    state: Optional[str]
     ROUTE: Optional[int] = Field(alias="route")
     ROAD: Optional[str] = Field(alias="road")
     RDPREFIX: Optional[str] = Field(alias="road_prefix")
@@ -228,6 +231,22 @@ def get_record(num: int) -> Optional[Record]:
                 record = Record(**record_data)
             except ValidationError:
                 raise
+
+            # get MCD names
+            if record.MCD:
+                cursor.execute(
+                    "select MCDNAME, COUNTY, STATE from DVRPCTC.TC_MCD where DVRPC = :mcd",
+                    mcd=record.MCD,
+                )
+
+                columns = [col[0] for col in cursor.description]
+                cursor.rowfactory = lambda *args: dict(zip(columns, args))
+                mcd_data = cursor.fetchone()
+
+                if mcd_data:
+                    record.municipality = mcd_data["MCDNAME"]
+                    record.county = mcd_data["COUNTY"]
+                    record.state = mcd_data["STATE"]
 
             # Get individual counts of the overall count
 
