@@ -106,16 +106,16 @@ class Count(BaseModel):
 
 class Record(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
+    SOURCE: Optional[str] = Field(alias="source")
+    TAKENBY: Optional[str] = Field(alias="taken_by")
+    COUNTERID: Optional[str] = Field(alias="counter_id")
+    STATIONID: Optional[str] = Field(alias="station_id")
     count_type: Optional[CountKind]
     TYPE: Optional[
         Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
     ] = Field(alias="count_sub_type")
-    static_pdf: Optional[str]
-    SETDATE: Optional[datetime.date] = Field(alias="date")
-    TAKENBY: Optional[str] = Field(alias="taken_by")
-    COUNTERID: Optional[str] = Field(alias="counter_id")
-    STATIONID: Optional[str] = Field(alias="station_id")
     DESCRIPTION: Optional[str] = Field(alias="description")
+    SETDATE: Optional[datetime.date] = Field(alias="set_date")
     PRJ: Optional[str] = Field(alias="project")
     PROGRAM: Optional[str] = Field(alias="program")
     BIKEPEDGROUP: Optional[str] = Field(alias="group")
@@ -152,6 +152,7 @@ class Record(BaseModel):
     PMPEAK: Optional[float] = Field(alias="pm_peak")
     PMENDING: Optional[str] = Field(alias="pm_ending")
     COMMENTS: Optional[str] = Field(alias="comments")
+    static_pdf: Optional[str]
     counts: List[Count] = []
 
     # this allows extracting by db field name, but using alias
@@ -231,6 +232,13 @@ def get_record(num: int) -> Optional[Record]:
                 record = Record(**record_data)
             except ValidationError:
                 raise
+
+            # map SOURCE to human-readable version
+            if record.SOURCE:
+                if record.SOURCE == "0":
+                    record.SOURCE = "DVRPC"
+                elif record.SOURCE == "-1":
+                    record.SOURCE = "external"
 
             # get MCD names
             if record.MCD:
