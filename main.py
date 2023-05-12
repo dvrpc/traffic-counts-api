@@ -405,9 +405,8 @@ def get_record_csv(num: int) -> Any:
 
     csv_file = Path(f"csv/{num}.csv")
 
-    # FIXME: uncomment this once the metadata gets written properly to the CSV
-    # if csv_file.exists():
-    #     return FileResponse(csv_file)
+    if csv_file.exists():
+        return FileResponse(csv_file)
 
     # otherwise, fetch the data from the database
     try:
@@ -419,9 +418,23 @@ def get_record_csv(num: int) -> Any:
         return JSONResponse(status_code=404, content={"message": "Record not found"})
 
     # create CSV, save it, return it
-    fieldnames = list(Count.schema()["properties"].keys())
     with open(csv_file, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        # create a writer for the metadata and add it
+        fieldnames_metadata = list(Record.schema()["properties"].keys())
+        # remove the "counts" field from this - that will be written separately
+        fieldnames_metadata.remove("counts")
+
+        writer = csv.DictWriter(f, fieldnames=fieldnames_metadata, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerow(record.dict(by_alias=True))
+
+        # Create new writer, just to write an empty line to the same file
+        writer = csv.writer(f)
+        writer.writerow("")
+
+        # create a new writer for the actual count data, and add it to the same file
+        fieldnames_count = list(Count.schema()["properties"].keys())
+        writer = csv.DictWriter(f, fieldnames=fieldnames_count)
         writer.writeheader()
         for count in record.counts:
             writer.writerow(count.dict(by_alias=True))
