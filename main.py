@@ -376,8 +376,9 @@ def get_record(num: int) -> Optional[Record]:
 @app.get(
     "/api/traffic-counts/v1/records",
     responses=responses,  # type: ignore
+    summary="Get record numbers",
 )
-def get_record_nums(count_type: Optional[CountKind] = None):
+def get_record_numbers(count_type: Optional[CountKind] = None):
     """
     Get the record numbers of all counts.
 
@@ -416,11 +417,34 @@ def get_record_nums(count_type: Optional[CountKind] = None):
 
 
 @app.get(
+    "/api/traffic-counts/v1/record/{num}",
+    responses=responses,  # type: ignore
+    response_model=Record,
+    summary="Get count data in JSON format",
+)
+def get_record_json(num: int) -> Any:
+    try:
+        record = get_record(num)
+    except ValidationError:
+        return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
+
+    if record is None:
+        return JSONResponse(status_code=404, content={"message": "Record not found"})
+
+    return record
+
+
+@app.get(
     "/api/traffic-counts/v1/record/csv/{num}",
     responses=responses,  # type: ignore
     response_model=Record,
+    summary="Get count data in a CSV file",
 )
 def get_record_csv(num: int) -> Any:
+    """
+    Metadata will be placed in the first two rows, followed by a blank line, followed by the
+    data from the count.
+    """
     # create csv/ folder if it doesn't exist
     try:
         Path("csv").mkdir()
@@ -464,20 +488,3 @@ def get_record_csv(num: int) -> Any:
             writer.writerow(count.dict(by_alias=True))
 
     return FileResponse(csv_file)
-
-
-@app.get(
-    "/api/traffic-counts/v1/record/{num}",
-    responses=responses,  # type: ignore
-    response_model=Record,
-)
-def get_record_json(num: int) -> Any:
-    try:
-        record = get_record(num)
-    except ValidationError:
-        return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
-
-    if record is None:
-        return JSONResponse(status_code=404, content={"message": "Record not found"})
-
-    return record
