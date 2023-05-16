@@ -377,11 +377,35 @@ def get_record(num: int) -> Optional[Record]:
     "/api/traffic-counts/v1/records",
     responses=responses,  # type: ignore
 )
-def get_record_nums():
+def get_record_nums(count_type: Optional[CountKind] = None):
+    """
+    Get the record numbers of all counts.
+
+    Optionally provide the `count_type` query parameter to get record numbers for specific types of
+    counts, e.g. `?count_type=bicycle`.
+    """
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
             cursor = connection.cursor()
-            cursor.execute("select RECORDNUM from DVRPCTC.TC_HEADER")
+
+            if not count_type:
+                cursor.execute("select RECORDNUM from DVRPCTC.TC_HEADER")
+            else:
+                if count_type == CountKind.bicycle:
+                    count_types = [each.value for each in BicycleCountKind]
+                elif count_type == CountKind.pedestrian:
+                    count_types = [each.value for each in PedestrianCountKind]
+                elif count_type == CountKind.vehicle:
+                    count_types = [each.value for each in VehicleCountKind]
+                elif count_type == CountKind.no_data:
+                    count_types = [each.value for each in NotInDatabaseCountKind]
+
+                bind_names = ",".join(":" + str(i + 1) for i in range(len(count_types)))
+                cursor.execute(
+                    f"select RECORDNUM from DVRPCTC.TC_HEADER where type in ({bind_names})",
+                    count_types,
+                )
+
             res = cursor.fetchall()
 
     records = []
