@@ -309,11 +309,16 @@ def get_record(num: int) -> Optional[Record]:
 
                     # sum total by day, get weather and temps
                     for count_date, count in counts.items():
-                        total = 0
-                        for k2, v2 in count.items():
-                            if type(v2) == int:
+                        # do not provide a total if there isn't a full day's count
+                        if len(count.items()) != 24:
+                            counts[count_date]["total"] = None
+                        # otherwise, sum them and put into `counts`
+                        else:
+                            total = 0
+                            for k2, v2 in count.items():
                                 total += v2
-                        counts[count_date]["total"] = total
+
+                            counts[count_date]["total"] = total
 
                         cursor.execute(
                             """
