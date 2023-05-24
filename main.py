@@ -166,6 +166,8 @@ class Error(BaseModel):
 
 app = FastAPI(
     title="DVRPC Traffic Counts API",
+    description="Please visit [Travel Monitoring Counts](https://www.dvrpc.org/traffic/) for "
+    "information about the Delaware Valley Regional Planning Commission's traffic counts.",
     version="1.0",
     openapi_url="/api/traffic-counts/v1/openapi.json",
     docs_url="/api/traffic-counts/v1/docs",
