@@ -147,6 +147,8 @@ class Record(BaseModel):
     AXLE: Optional[float]
     FACTOR: Optional[float]
     AADT: Optional[int]
+    AADB: Optional[int]
+    AADP: Optional[int]
     AMPEAK: Optional[float] = Field(alias="am_peak")
     AMENDING: Optional[str] = Field(alias="am_ending")
     PMPEAK: Optional[float] = Field(alias="pm_peak")
