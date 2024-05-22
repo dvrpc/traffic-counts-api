@@ -162,6 +162,29 @@ class Record(BaseModel):
         allow_population_by_field_name = True
 
 
+class ClassCount(BaseModel):
+    COUNTDATE: datetime.date = Field(alias="date")
+    TIME: Optional[str] = Field(alias="time")
+    TOTAL: Optional[int] = Field(alias="total")
+    BIKES: Optional[int] = Field(alias="motorcycles")
+    CARS_AND_TLRS: Optional[int] = Field(alias="passenger_cars")
+    AX2_LONG: Optional[int] = Field(alias="other_four_tire_single_unit_vehicles")
+    BUSES: Optional[int] = Field(alias="buses")
+    AX2_6_TIRE: Optional[int] = Field(alias="two_axle_six_tire_single_unit_trucks")
+    AX3_SINGLE: Optional[int] = Field(alias="three_axle_single_unit_trucks")
+    AX4_SINGLE: Optional[int] = Field(alias="four_or_more_axle_single_unit_trucks")
+    LT_5_AX_DOUBLE: Optional[int] = Field(alias="four_or_fewer_axle_single_trailer_trucks")
+    AX5_DOUBLE: Optional[int] = Field(alias="five_axle_single_trailer_trucks")
+    GT_5_AX_DOUBLE: Optional[int] = Field(alias="six_or_more_axle_single_trailer_trucks")
+    LT_6_AX_MULTI: Optional[int] = Field(alias="five_or_fewer_axle_multi_trailer_trucks")
+    AX6_MULTI: Optional[int] = Field(alias="six_axle_multi_trailer_trucks")
+    GT_6_AX_MULTI: Optional[int] = Field(alias="seven_or_more_axle_multi_trailer_trucks")
+
+    # this allows extracting by db field name, but using alias
+    class Config:
+        allow_population_by_field_name = True
+
+
 class Error(BaseModel):
     message: str
 
@@ -497,3 +520,105 @@ def get_record_csv(num: int) -> Any:
             writer.writerow(count.dict(by_alias=True))
 
     return FileResponse(csv_file)
+
+
+@app.get(
+    "/api/traffic-counts/v1/record/class/{num}",
+    responses=responses,  # type: ignore
+    response_model=List[ClassCount],
+    summary="Get count data by motor vehicle class in JSON format",
+)
+def get_class_count_data(
+    num: int,
+    interval: str = "15min",
+) -> Any:
+    if interval == "hourly":
+        query = """
+            select
+                COUNTDATE,
+                TO_CHAR(trunc(counttime, 'HH'), 'FMHH AM') as TIME,
+                SUM(total) as TOTAL,
+                SUM(BIKES) as BIKES,
+                SUM(CARS_AND_TLRS) as CARS_AND_TLRS,
+                SUM(AX2_LONG) as AX2_LONG,
+                SUM(BUSES) as BUSES,
+                SUM(AX2_6_TIRE) as AX2_6_TIRE,
+                SUM(AX3_SINGLE) as AX3_SINGLE,
+                SUM(AX4_SINGLE) as AX4_SINGLE,
+                SUM(LT_5_AX_DOUBLE) as LT_5_AX_DOUBLE,
+                SUM(AX5_DOUBLE) as AX5_DOUBLE,
+                SUM(GT_5_AX_DOUBLE) as GT_5_AX_DOUBLE,
+                SUM(LT_6_AX_MULTI) as LT_6_AX_MULTI,
+                SUM(AX6_MULTI) as AX6_MULTI,
+                SUM(GT_6_AX_MULTI) as GT_6_AX_MULTI
+            from DVRPCTC.TC_CLACOUNT
+            where recordnum = :num
+            group by countdate, trunc(counttime, 'HH')
+            order by countdate
+        """
+    elif interval == "daily":
+        query = """
+            select
+                COUNTDATE,
+                SUM(total) as TOTAL,
+                SUM(BIKES) as BIKES,
+                SUM(CARS_AND_TLRS) as CARS_AND_TLRS,
+                SUM(AX2_LONG) as AX2_LONG,
+                SUM(BUSES) as BUSES,
+                SUM(AX2_6_TIRE) as AX2_6_TIRE,
+                SUM(AX3_SINGLE) as AX3_SINGLE,
+                SUM(AX4_SINGLE) as AX4_SINGLE,
+                SUM(LT_5_AX_DOUBLE) as LT_5_AX_DOUBLE,
+                SUM(AX5_DOUBLE) as AX5_DOUBLE,
+                SUM(GT_5_AX_DOUBLE) as GT_5_AX_DOUBLE,
+                SUM(LT_6_AX_MULTI) as LT_6_AX_MULTI,
+                SUM(AX6_MULTI) as AX6_MULTI,
+                SUM(GT_6_AX_MULTI) as GT_6_AX_MULTI
+            from DVRPCTC.TC_CLACOUNT
+            where recordnum = :num
+            group by countdate
+            order by countdate
+        """
+    else:
+        query = """
+            select
+                COUNTDATE,
+                TO_CHAR(COUNTTIME, 'HH:MI AM') as TIME,
+                SUM(total) as TOTAL,
+                SUM(BIKES) as BIKES,
+                SUM(CARS_AND_TLRS) as CARS_AND_TLRS,
+                SUM(AX2_LONG) as AX2_LONG,
+                SUM(BUSES) as BUSES,
+                SUM(AX2_6_TIRE) as AX2_6_TIRE,
+                SUM(AX3_SINGLE) as AX3_SINGLE,
+                SUM(AX4_SINGLE) as AX4_SINGLE,
+                SUM(LT_5_AX_DOUBLE) as LT_5_AX_DOUBLE,
+                SUM(AX5_DOUBLE) as AX5_DOUBLE,
+                SUM(GT_5_AX_DOUBLE) as GT_5_AX_DOUBLE,
+                SUM(LT_6_AX_MULTI) as LT_6_AX_MULTI,
+                SUM(AX6_MULTI) as AX6_MULTI,
+                SUM(GT_6_AX_MULTI) as GT_6_AX_MULTI
+            from DVRPCTC.TC_CLACOUNT where recordnum = :num
+            group by counttime, countdate
+            order by countdate, counttime
+        """
+
+    class_counts = []
+
+    with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
+        with connection.cursor() as cursor:
+            # get overall count metadata
+            cursor = connection.cursor()
+            cursor.execute(query, num=num)
+
+            # convert from tuples to dict
+            columns = [col[0] for col in cursor.description]
+            cursor.rowfactory = lambda *args: dict(zip(columns, args))
+
+            for row in cursor.fetchall():
+                class_counts.append(ClassCount(**row))
+
+    if not class_counts:
+        return JSONResponse(status_code=404, content={"message": "Class count not found"})
+
+    return class_counts
