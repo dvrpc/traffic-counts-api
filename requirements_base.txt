@@ -1,4 +1,4 @@
-oracledb==1.2.2
-fastapi==0.92.*
-uvicorn==0.17.*
-pydantic==1.10.6
+oracledb==3.0.*
+fastapi[standard]==0.115.*
+uvicorn==0.34.*
+pydantic==2.11.*

@@ -1,0 +1,4 @@
+USER = "traffic-counts-api"
+PASSWORD = "somepassword"
+DB = "traffic-counts"
+URL_ROOT = "api/traffic-counts/v2"
