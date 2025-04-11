@@ -63,8 +63,8 @@ class NonNormalHourlyVolumeRecord(BaseModel):
     """
 
     metadata: Metadata
-    static_pdf: Optional[str] = None
-    counts: List[NonNormalHourlyCount] = []
+    static_pdf: Optional[str]
+    counts: List[NonNormalHourlyCount]
 
 
 def get_hourly_volume(num: int) -> Optional[NonNormalHourlyVolumeRecord]:

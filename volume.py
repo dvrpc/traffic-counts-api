@@ -8,7 +8,7 @@ from typing import Any, List, Optional
 import oracledb
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, AliasGenerator
 
 from common import NotFoundError, responses
 from config import PASSWORD, USER
@@ -32,6 +32,12 @@ class HourlyCount(BaseModel):
     DATETIME: datetime.datetime
     VOLUME: int
 
+    class Config:
+        validate_by_name = True
+        alias_generator = AliasGenerator(
+            serialization_alias=lambda field_name: field_name.lower(),
+        )
+
 
 class HourlyVolumeRecord(BaseModel):
     """
@@ -39,8 +45,8 @@ class HourlyVolumeRecord(BaseModel):
     """
 
     metadata: Metadata
-    static_pdf: Optional[str] = None
-    counts: List[HourlyCount] = []
+    static_pdf: Optional[str]
+    counts: List[HourlyCount]
 
 
 def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
