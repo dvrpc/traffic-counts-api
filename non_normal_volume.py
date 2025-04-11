@@ -14,7 +14,6 @@ from common import NotFoundError, responses
 from config import PASSWORD, USER
 from counts import (
     BicycleCountKind,
-    CountKind,
     NotInDatabaseCountKind,
     PedestrianCountKind,
     VehicleCountKind,
@@ -187,7 +186,7 @@ def get_hourly_volume(num: int) -> Optional[NonNormalHourlyVolumeRecord]:
 
 
 @router.get(
-    "/volume/non-normal/{num}",
+    "/volume/hourly/non-normal/{num}",
     responses=responses,
     response_model=NonNormalHourlyVolumeRecord,
     summary="Get non-normal count data (by hours in a day) in JSON format",
@@ -205,7 +204,7 @@ def get_hourly_volume_json(num: int) -> Any:
 
 
 @router.get(
-    "/volume/non-normal/csv/{num}",
+    "/volume/hourly/non-normal/csv/{num}",
     responses=responses,  # type: ignore
     response_model=NonNormalHourlyVolumeRecord,
     summary="Get non-normal count data (by hours in a day) in a CSV file",
@@ -242,7 +241,7 @@ def get_hourly_volume_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_nonnormal_csv(csv_file, num)
+                    create_hourly_nonnormal_csv(csv_file, num)
                 except NotFoundError:
                     return JSONResponse(status_code=404, content={"message": "Record not found"})
                 except ValidationError:
@@ -252,7 +251,7 @@ def get_hourly_volume_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_nonnormal_csv(csv_file, num)
+                create_hourly_nonnormal_csv(csv_file, num)
             except NotFoundError:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
             except ValidationError:
@@ -266,7 +265,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_nonnormal_csv(csv_file, num)
+            create_hourly_nonnormal_csv(csv_file, num)
         except NotFoundError:
             return JSONResponse(status_code=404, content={"message": "Record not found"})
         except ValidationError:
@@ -277,7 +276,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_nonnormal_csv(csv_path: Path, num: int):
+def create_hourly_nonnormal_csv(csv_path: Path, num: int):
     """
     Create a CSV file of non-normal hourly data.
     """

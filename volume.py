@@ -103,7 +103,7 @@ def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
 
 
 @router.get(
-    "/volume/{num}",
+    "/volume/hourly/{num}",
     responses=responses,
     response_model=HourlyVolumeRecord,
     summary="Get hourly volume of a count in JSON format",
@@ -121,7 +121,7 @@ def get_hourly_volume_json(num: int) -> Any:
 
 
 @router.get(
-    "/volume/csv/{num}",
+    "/volume/hourly/csv/{num}",
     responses=responses,  # type: ignore
     response_model=HourlyVolumeRecord,
     summary="Get hourly volume of a count in CSV file",
@@ -158,7 +158,7 @@ def get_hourly_volume_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_csv(csv_file, num)
+                    create_hourly_csv(csv_file, num)
                 except NotFoundError:
                     return JSONResponse(status_code=404, content={"message": "Record not found"})
                 except ValidationError:
@@ -168,7 +168,7 @@ def get_hourly_volume_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_csv(csv_file, num)
+                create_hourly_csv(csv_file, num)
             except NotFoundError:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
             except ValidationError:
@@ -182,7 +182,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_csv(csv_file, num)
+            create_hourly_csv(csv_file, num)
         except NotFoundError:
             return JSONResponse(status_code=404, content={"message": "Record not found"})
         except ValidationError:
@@ -193,7 +193,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_csv(csv_path: Path, num: int):
+def create_hourly_csv(csv_path: Path, num: int):
     """
     Create a CSV file of non-normal hourly data.
     """
