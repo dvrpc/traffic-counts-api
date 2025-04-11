@@ -2,6 +2,7 @@ import oracledb
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import classed
 import non_normal_volume
 import metadata
 import volume
@@ -28,4 +29,5 @@ app.add_middleware(
 
 app.include_router(volume.router)
 app.include_router(non_normal_volume.router)
+app.include_router(classed.router)
 app.include_router(metadata.router)

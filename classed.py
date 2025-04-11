@@ -12,25 +12,32 @@ from pydantic import BaseModel, ValidationError, AliasGenerator
 
 from common import NotFoundError, responses
 from config import PASSWORD, USER
-from counts import (
-    BicycleCountKind,
-    CountKind,
-    NotInDatabaseCountKind,
-    PedestrianCountKind,
-    VehicleCountKind,
-)
 from metadata import Metadata, get_metadata
 
 router = APIRouter()
 
-logger2 = logging.getLogger(__name__)
-logger2.addHandler(logging.FileHandler("../volume.log"))
-logger2.propagate = False
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.FileHandler("../class.log"))
+logger.propagate = False
 
 
-class HourlyVolume(BaseModel):
+class HourlyClass(BaseModel):
     DATETIME: datetime.datetime
-    VOLUME: int
+    TOTAL: int
+    MOTORCYCLES: int
+    PASSENGER_CARS: int
+    OTHER_FOUR_TIRE_SINGLE_UNIT_VEHICLES: int
+    BUSES: int
+    TWO_AXLE_SIX_TIRE_SINGLE_UNIT_TRUCKS: int
+    THREE_AXLE_SINGLE_UNIT_TRUCKS: int
+    FOUR_OR_MORE_AXLE_SINGLE_UNIT_TRUCKS: int
+    FOUR_OR_FEWER_AXLE_SINGLE_TRAILER_TRUCKS: int
+    FIVE_AXLE_SINGLE_TRAILER_TRUCKS: int
+    SIX_OR_MORE_AXLE_SINGLE_TRAILER_TRUCKS: int
+    FIVE_OR_FEWER_AXLE_MULTI_TRAILER_TRUCKS: int
+    SIX_AXLE_MULTI_TRAILER_TRUCKS: int
+    SEVEN_OR_MORE_AXLE_MULTI_TRAILER_TRUCKS: int
+    UNCLASSIFIED_VEHICLE: int
 
     class Config:
         validate_by_name = True
@@ -39,78 +46,68 @@ class HourlyVolume(BaseModel):
         )
 
 
-class HourlyVolumeRecord(BaseModel):
+class HourlyClassRecord(BaseModel):
     """
-    An volume count by hour.
+    A class count by hour.
     """
 
     metadata: Metadata
     static_pdf: Optional[str]
-    counts: List[HourlyVolume]
+    counts: List[HourlyClass]
 
 
-def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
+def get_hourly_class(num: int) -> Optional[HourlyClassRecord]:
     metadata = get_metadata(num)
     if metadata is None:
         return None
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
-            if metadata.TYPE in (
-                [each.value for each in BicycleCountKind]
-                + [each.value for each in PedestrianCountKind]
-                + [each.value for each in VehicleCountKind]
-            ):
-                if metadata.TYPE in [each.value for each in BicycleCountKind]:
-                    tc_table = "tc_bikecount_new"
+            cursor.execute(
+                """
+                select 
+                    TRUNC(countdatetime, 'HH24') as datetime,
+                    sum(total) as total,
+                    sum(bikes) as motorcycles,
+                    sum(cars_and_tlrs) as PASSENGER_CARS,
+                    sum(ax2_long) as OTHER_FOUR_TIRE_SINGLE_UNIT_VEHICLES,
+                    sum(buses) as buses,
+                    sum(ax2_6_tire) as TWO_AXLE_SIX_TIRE_SINGLE_UNIT_TRUCKS,
+                    sum(ax3_single) as THREE_AXLE_SINGLE_UNIT_TRUCKS,
+                    sum(ax4_single) as FOUR_OR_MORE_AXLE_SINGLE_UNIT_TRUCKS,
+                    sum(lt_5_ax_double) as FOUR_OR_FEWER_AXLE_SINGLE_TRAILER_TRUCKS,
+                    sum(ax5_double) as FIVE_AXLE_SINGLE_TRAILER_TRUCKS,
+                    sum(gt_5_ax_double) as SIX_OR_MORE_AXLE_SINGLE_TRAILER_TRUCKS,
+                    sum(lt_6_ax_multi) as FIVE_OR_FEWER_AXLE_MULTI_TRAILER_TRUCKS,
+                    sum(ax6_multi) as SIX_AXLE_MULTI_TRAILER_TRUCKS,
+                    sum(gt_6_ax_multi) as SEVEN_OR_MORE_AXLE_MULTI_TRAILER_TRUCKS,
+                    sum(unclassified) as UNCLASSIFIED_VEHICLE
+                from tc_clacount_new 
+                where recordnum = :num 
+                group by trunc(countdatetime, 'HH24')
+                order by trunc(countdatetime, 'HH24')
+                """,
+                num=num,
+            )
 
-                if metadata.TYPE in [each.value for each in PedestrianCountKind]:
-                    tc_table = "tc_pedcount_new"
+            columns = [col[0] for col in cursor.description]
+            cursor.rowfactory = lambda *args: dict(zip(columns, args))
+            count_data = cursor.fetchall()
 
-                if metadata.TYPE in [each.value for each in VehicleCountKind]:
-                    tc_table = "tc_volcount_new"
+            hourly_class = HourlyClassRecord(metadata=metadata, static_pdf=None, counts=count_data)
 
-                cursor.execute(
-                    f"""
-                    select TRUNC(countdatetime, 'HH24') as datetime, sum(volume) as volume
-                    from {tc_table} 
-                    where recordnum = :num 
-                    group by trunc(countdatetime, 'HH24')
-                    order by trunc(countdatetime, 'HH24')
-                    """,
-                    num=num,
-                )
-
-                columns = [col[0] for col in cursor.description]
-                cursor.rowfactory = lambda *args: dict(zip(columns, args))
-                count_data = cursor.fetchall()
-
-                hourly_volume = HourlyVolumeRecord(
-                    metadata=metadata, static_pdf=None, counts=count_data
-                )
-
-            # these are not in the database but just in static pdf
-            elif metadata.TYPE in [each.value for each in NotInDatabaseCountKind]:
-                metadata.count_type = CountKind.no_data
-                # the subtype in the url is just the value of TYPE without spaces
-                sub_type_in_url = metadata.TYPE.value.replace(" ", "")
-                static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.PDF"
-                hourly_volume = HourlyVolumeRecord(
-                    metadata=metadata, static_pdf=static_pdf, counts=[]
-                )
-
-    return hourly_volume
+    return hourly_class
 
 
 @router.get(
-    "/volume/hourly/{num}",
+    "/class/hourly/{num}",
     responses=responses,
-    response_model=HourlyVolumeRecord,
-    summary="Get hourly volume of a count in JSON format",
+    response_model=HourlyClassRecord,
+    summary="Get hourly volume by class of a count in JSON format",
 )
-def get_hourly_volume_json(num: int) -> Any:
+def get_hourly_class_json(num: int) -> Any:
     try:
-        record = get_hourly_volume(num)
+        record = get_hourly_class(num)
     except ValidationError:
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
@@ -121,22 +118,22 @@ def get_hourly_volume_json(num: int) -> Any:
 
 
 @router.get(
-    "/volume/hourly/csv/{num}",
+    "/class/hourly/csv/{num}",
     responses=responses,  # type: ignore
-    response_model=HourlyVolumeRecord,
-    summary="Get hourly volume of a count in CSV file",
+    response_model=HourlyClassRecord,
+    summary="Get hourly volume by class of a count in CSV file",
 )
-def get_hourly_volume_csv(num: int) -> Any:
+def get_hourly_class_csv(num: int) -> Any:
     """
     Metadata will be placed in the first two rows, followed by a blank line, followed by the
     data from the count.
     """
     # Create csv/ folder if it doesn't exist.
     try:
-        Path("csv/volume").mkdir()
+        Path("csv/class").mkdir()
     except FileExistsError:
         pass
-    csv_file = Path(f"csv/volume/{num}.csv")
+    csv_file = Path(f"csv/class/{num}.csv")
 
     if csv_file.exists():
         # If older than most recent AADV calculation, we have to recreate it.
@@ -158,7 +155,7 @@ def get_hourly_volume_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_hourly_csv(csv_file, num)
+                    create_hourly_class_csv(csv_file, num)
                 except NotFoundError:
                     return JSONResponse(status_code=404, content={"message": "Record not found"})
                 except ValidationError:
@@ -168,7 +165,7 @@ def get_hourly_volume_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_hourly_csv(csv_file, num)
+                create_hourly_class_csv(csv_file, num)
             except NotFoundError:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
             except ValidationError:
@@ -182,7 +179,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_hourly_csv(csv_file, num)
+            create_hourly_class_csv(csv_file, num)
         except NotFoundError:
             return JSONResponse(status_code=404, content={"message": "Record not found"})
         except ValidationError:
@@ -193,16 +190,16 @@ def get_hourly_volume_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_hourly_csv(csv_path: Path, num: int):
+def create_hourly_class_csv(csv_path: Path, num: int):
     """
-    Create a CSV file of hourly volume data.
+    Create a CSV file of hourly volume by class of a count.
     """
-    record = get_hourly_volume(num)
+    record = get_hourly_class(num)
 
     if record is None:
         raise NotFoundError
 
-    # create CSV, save it, return it
+    # Create CSV, save it, return it.
     with open(csv_path, "w", newline="") as f:
         # Get and write metadata field names and values.
         fieldnames_metadata = list(Metadata.model_json_schema()["properties"].keys())
@@ -216,7 +213,7 @@ def create_hourly_csv(csv_path: Path, num: int):
         writer.writerow("")
 
         # Get and write count field names and values; use new writer to add it to the same file.
-        fieldnames_count = list(HourlyVolume.schema()["properties"].keys())
+        fieldnames_count = list(HourlyClass.schema()["properties"].keys())
         writer = csv.DictWriter(f, fieldnames=fieldnames_count)
         writer.writeheader()
         for count in record.counts:
