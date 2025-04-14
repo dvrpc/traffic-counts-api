@@ -3,7 +3,7 @@ import datetime
 import logging
 import os
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import oracledb
 from fastapi import APIRouter
@@ -46,11 +46,15 @@ class HourlyVolumeRecord(BaseModel):
 
     metadata: Metadata
     static_pdf: Optional[str]
-    counts: List[HourlyVolume]
+    counts: list[HourlyVolume]
 
 
 def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
-    metadata = get_metadata(num)
+    try:
+        metadata = get_metadata(num)
+    except ValidationError:
+        raise
+
     if metadata is None:
         return None
 

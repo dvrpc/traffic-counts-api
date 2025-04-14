@@ -3,6 +3,7 @@ from typing import Optional, Union
 
 import oracledb
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import AliasGenerator, BaseModel, Field, ValidationError
 
 from common import responses
@@ -84,7 +85,7 @@ router = APIRouter()
     responses=responses,
     summary="Get count numbers",
 )
-def get_count_numbers(count_type: Optional[CountKind] = None):
+def get_count_numbers(count_type: Optional[CountKind] = None) -> list[int]:
     """
     Get the record numbers of all counts.
 
@@ -126,22 +127,20 @@ def get_count_numbers(count_type: Optional[CountKind] = None):
     "/records/{num}",
     responses=responses,
 )
-def get_metadata_json(num: int):
+def get_metadata_json(num: int) -> Optional[Metadata]:
     """
     Get metadata for a count.
     """
 
-    with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
-        with connection.cursor() as cursor:
-            cursor = connection.cursor()
-            cursor.execute("select * from tc_header")
-            res = cursor.fetchone()
+    try:
+        metadata = get_metadata(num)
+    except ValidationError:
+        return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
-    records = []
-    for row in res:
-        records.append(row[0])
+    if metadata is None:
+        return None
 
-    return records
+    return metadata
 
 
 def get_metadata(num: int) -> Optional[Metadata]:
