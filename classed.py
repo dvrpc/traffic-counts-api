@@ -22,6 +22,12 @@ logger.propagate = False
 
 
 class HourlyClass(BaseModel):
+    """
+    Hourly volume by class.
+    NOTE: Unclassified vehicles are listed in their own field, but are also included in the count
+    for passenger cars.
+    """
+
     DATETIME: datetime.datetime
     TOTAL: int
     MOTORCYCLES: int
