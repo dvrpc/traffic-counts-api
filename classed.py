@@ -37,7 +37,7 @@ class HourlyClass(BaseModel):
     FIVE_OR_FEWER_AXLE_MULTI_TRAILER_TRUCKS: int
     SIX_AXLE_MULTI_TRAILER_TRUCKS: int
     SEVEN_OR_MORE_AXLE_MULTI_TRAILER_TRUCKS: int
-    UNCLASSIFIED_VEHICLE: int
+    UNCLASSIFIED_VEHICLE: Optional[int]
 
     class Config:
         validate_by_name = True
