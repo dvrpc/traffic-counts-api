@@ -8,7 +8,7 @@ from typing import Any, Optional
 import oracledb
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ValidationError, AliasGenerator
+from pydantic import BaseModel, ValidationError
 
 from common import NotFoundError, responses
 from config import PASSWORD, USER
@@ -28,17 +28,6 @@ logger2.addHandler(logging.FileHandler("../volume.log"))
 logger2.propagate = False
 
 
-class HourlyVolume(BaseModel):
-    DATETIME: datetime.datetime
-    VOLUME: int
-
-    class Config:
-        validate_by_name = True
-        alias_generator = AliasGenerator(
-            serialization_alias=lambda field_name: field_name.lower(),
-        )
-
-
 class HourlyVolumeRecord(BaseModel):
     """
     An volume count by hour.
@@ -46,7 +35,7 @@ class HourlyVolumeRecord(BaseModel):
 
     metadata: Metadata
     static_pdf: Optional[str]
-    counts: list[HourlyVolume]
+    counts: dict[datetime.datetime, int]
 
 
 def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
@@ -85,15 +74,14 @@ def get_hourly_volume(num: int) -> Optional[HourlyVolumeRecord]:
                     num=num,
                 )
 
-                columns = [col[0] for col in cursor.description]
-                cursor.rowfactory = lambda *args: dict(zip(columns, args))
                 count_data = cursor.fetchall()
+                count_data = dict((x[0], x[1]) for x in count_data)
 
                 hourly_volume = HourlyVolumeRecord(
                     metadata=metadata, static_pdf=None, counts=count_data
                 )
 
-            # these are not in the database but just in static pdf
+            # These are not in the database but just in static pdf.
             elif metadata.TYPE in [each.value for each in NotInDatabaseCountKind]:
                 metadata.count_type = CountKind.no_data
                 # the subtype in the url is just the value of TYPE without spaces
@@ -215,15 +203,12 @@ def create_hourly_csv(csv_path: Path, num: int):
         writer.writeheader()
         writer.writerow(record.metadata.model_dump(by_alias=True))
 
-        # Create new writer, just to write an empty line to the same file.
+        # Write counts.
         writer = csv.writer(f)
         writer.writerow("")
+        writer.writerow(["datetime", "volume"])
 
-        # Get and write count field names and values; use new writer to add it to the same file.
-        fieldnames_count = list(HourlyVolume.schema()["properties"].keys())
-        writer = csv.DictWriter(f, fieldnames=fieldnames_count)
-        writer.writeheader()
-        for count in record.counts:
-            writer.writerow(count.dict(by_alias=True))
+        for k, v in record.counts.items():
+            writer.writerow([k, v])
 
     return

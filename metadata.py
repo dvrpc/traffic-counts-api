@@ -19,8 +19,11 @@ from counts import (
 
 class Metadata(BaseModel):
     """
-    The field names below are the ones in the database. They may be changed to value in `alias`.
+    Count metadata, from tc_header table.
     """
+
+    # The field names on the left are the ones in the database, which have been aliased
+    # to be more informative/user-friendly.
 
     RECORDNUM: int = Field(alias="record_num")
     SOURCE: Optional[str]
