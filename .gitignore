@@ -4,3 +4,4 @@ tnsnames.ora
 config.py
 csv/
 
+*.log

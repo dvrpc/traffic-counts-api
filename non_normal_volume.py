@@ -22,9 +22,7 @@ from metadata import Metadata, get_metadata
 
 router = APIRouter()
 
-logger2 = logging.getLogger(__name__)
-logger2.addHandler(logging.FileHandler("../api.log"))
-logger2.propagate = False
+logger = logging.getLogger("api")
 
 
 class NonNormalHourlyCount(BaseModel):
@@ -198,7 +196,8 @@ def get_hourly_volume(num: int) -> Optional[NonNormalHourlyVolumeRecord]:
 def get_hourly_volume_json(num: int) -> Any:
     try:
         record = get_hourly_volume(num)
-    except ValidationError:
+    except ValidationError as e:
+        logger.error(e)
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
     if record is None:
@@ -211,7 +210,7 @@ def get_hourly_volume_json(num: int) -> Any:
     "/volume/hourly/non-normal/csv/{num}",
     responses=responses,  # type: ignore
     response_model=NonNormalHourlyVolumeRecord,
-    summary="Get non-normal count data (by hours in a day) in a CSV file",
+    summary="Get non-normal count data (by hours in a day) as a CSV file",
 )
 def get_hourly_volume_csv(num: int) -> Any:
     """
@@ -258,11 +257,13 @@ def get_hourly_volume_csv(num: int) -> Any:
                 create_hourly_nonnormal_csv(csv_file, num)
             except NotFoundError:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
-            except ValidationError:
+            except ValidationError as e:
+                logger.error(e)
                 return JSONResponse(
                     status_code=500, content={"message": "Unexpected data type found."}
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(e)
                 return JSONResponse(
                     status_code=500, content={"message": "Unhandled error occurred."}
                 )
@@ -272,9 +273,12 @@ def get_hourly_volume_csv(num: int) -> Any:
             create_hourly_nonnormal_csv(csv_file, num)
         except NotFoundError:
             return JSONResponse(status_code=404, content={"message": "Record not found"})
-        except ValidationError:
+        except ValidationError as e:
+            logger.error(e)
             return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
-        except Exception:
+        except Exception as e:
+            logger.error(e)
+
             return JSONResponse(status_code=500, content={"message": "Unhandled error occurred."})
 
     return FileResponse(csv_file)

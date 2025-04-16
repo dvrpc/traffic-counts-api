@@ -16,9 +16,7 @@ from metadata import Metadata, get_metadata
 
 router = APIRouter()
 
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.FileHandler("../class.log"))
-logger.propagate = False
+logger = logging.getLogger("api")
 
 
 class HourlyClass(BaseModel):
@@ -118,7 +116,8 @@ def get_hourly_class(num: int) -> Optional[HourlyClassRecord]:
 def get_hourly_class_json(num: int) -> Any:
     try:
         record = get_hourly_class(num)
-    except ValidationError:
+    except ValidationError as e:
+        logger.error(e)
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
     if record is None:
@@ -131,7 +130,7 @@ def get_hourly_class_json(num: int) -> Any:
     "/class/hourly/csv/{num}",
     responses=responses,  # type: ignore
     response_model=HourlyClassRecord,
-    summary="Get hourly volume by class of a count in CSV file",
+    summary="Get hourly volume by class of a count as a CSV file",
 )
 def get_hourly_class_csv(num: int) -> Any:
     """
@@ -168,7 +167,8 @@ def get_hourly_class_csv(num: int) -> Any:
                     create_hourly_class_csv(csv_file, num)
                 except NotFoundError:
                     return JSONResponse(status_code=404, content={"message": "Record not found"})
-                except ValidationError:
+                except ValidationError as e:
+                    logger.error(e)
                     return JSONResponse(
                         status_code=500, content={"message": "Unexpected data type found."}
                     )
@@ -178,11 +178,13 @@ def get_hourly_class_csv(num: int) -> Any:
                 create_hourly_class_csv(csv_file, num)
             except NotFoundError:
                 return JSONResponse(status_code=404, content={"message": "Record not found"})
-            except ValidationError:
+            except ValidationError as e:
+                logger.error(e)
                 return JSONResponse(
                     status_code=500, content={"message": "Unexpected data type found."}
                 )
-            except Exception:
+            except Exception as e:
+                logger.error(e)
                 return JSONResponse(
                     status_code=500, content={"message": "Unhandled error occurred."}
                 )
@@ -192,9 +194,11 @@ def get_hourly_class_csv(num: int) -> Any:
             create_hourly_class_csv(csv_file, num)
         except NotFoundError:
             return JSONResponse(status_code=404, content={"message": "Record not found"})
-        except ValidationError:
+        except ValidationError as e:
+            logger.error(e)
             return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
-        except Exception:
+        except Exception as e:
+            logger.error(e)
             return JSONResponse(status_code=500, content={"message": "Unhandled error occurred."})
 
     return FileResponse(csv_file)

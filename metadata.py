@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Optional, Union
 
 import oracledb
@@ -15,6 +16,8 @@ from counts import (
     PedestrianCountKind,
     VehicleCountKind,
 )
+
+logger = logging.getLogger("api")
 
 
 class Metadata(BaseModel):
@@ -126,10 +129,7 @@ def get_count_numbers(
     return records
 
 
-@router.get(
-    "/records/{num}",
-    responses=responses,
-)
+@router.get("/records/{num}", responses=responses, summary="Get metadata of a count in JSON format")
 def get_metadata_json(num: int) -> Optional[Metadata]:
     """
     Get metadata for a count.
@@ -137,7 +137,8 @@ def get_metadata_json(num: int) -> Optional[Metadata]:
 
     try:
         metadata = get_metadata(num)
-    except ValidationError:
+    except ValidationError as e:
+        logger.error(e)
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
 
     if metadata is None:

@@ -1,5 +1,3 @@
-import logging
-
 from pydantic import BaseModel
 
 
@@ -13,10 +11,6 @@ class NotFoundError(ApiError):
 
 class Error(BaseModel):
     message: str
-
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename="../fastapi.log", level=logging.DEBUG)
 
 
 responses = {
