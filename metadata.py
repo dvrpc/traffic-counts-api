@@ -63,14 +63,10 @@ class Metadata(BaseModel):
     FC: Optional[int] = Field(alias="functional_class")
     SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
     AADV: Optional[int]
-    AMENDING: Optional[str] = Field(alias="am_ending")
     AM_PEAK_VOLUME: Optional[int]
     AVG_AM_MAX_PERCENT: Optional[float]
-    AMPEAK: Optional[float] = Field(alias="am_peak")
-    PMENDING: Optional[str] = Field(alias="pm_ending")
     PM_PEAK_VOLUME: Optional[int]
     AVG_PM_MAX_PERCENT: Optional[float]
-    PMPEAK: Optional[float] = Field(alias="pm_peak")
     COMMENTS: Optional[str] = Field(alias="comments")
 
     class Config:
