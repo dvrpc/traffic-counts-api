@@ -21,14 +21,11 @@ class PedestrianCountKind(str, Enum):
     pedestrian2 = "Pedestrian 2"
 
 
-# "8 Day" and "Loop" are currently being recategorized into one of the others in this class
 class VehicleCountKind(str, Enum):
     volume = "Volume"
     fifteen_min_volume = "15 min Volume"
     _class = "Class"
     speed = "Speed"
-    eight_day = "8 Day"
-    loop = "Loop"
 
 
 # Individual counts not in database.
