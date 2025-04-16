@@ -82,34 +82,38 @@ router = APIRouter()
 @router.get(
     "/records",
     responses=responses,
-    summary="Get count numbers",
+    summary="Get count numbers, optionally by type/subtype, in JSON format",
 )
-def get_count_numbers(count_type: Optional[CountKind] = None) -> list[int]:
+def get_count_numbers(
+    count_type: Optional[CountKind] = None, sub_type: Optional[VehicleCountKind] = None
+) -> list[int]:
     """
-    Get the record numbers of all counts.
+    Get the record numbers of all counts, in descending order.
 
-    Optionally provide the `count_type` query parameter to get record numbers for specific types of
-    counts, e.g. `?count_type=bicycle`.
+    Optionally refine by count type or by subtype (for vehicles) with query parameters.
+    For example: `?count_type=vehicle&sub_type=Class` or `?count_type=bicycle`.
     """
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
             cursor = connection.cursor()
 
-            if not count_type:
+            if not count_type and not sub_type:
                 cursor.execute("select recordnum from tc_header")
             else:
-                if count_type == CountKind.bicycle:
+                if sub_type:
+                    count_types = [sub_type]
+                elif count_type == CountKind.vehicle:
+                    count_types = [each.value for each in VehicleCountKind]
+                elif count_type == CountKind.bicycle:
                     count_types = [each.value for each in BicycleCountKind]
                 elif count_type == CountKind.pedestrian:
                     count_types = [each.value for each in PedestrianCountKind]
-                elif count_type == CountKind.vehicle:
-                    count_types = [each.value for each in VehicleCountKind]
                 elif count_type == CountKind.no_data:
                     count_types = [each.value for each in NotInDatabaseCountKind]
 
                 bind_names = ",".join(":" + str(i + 1) for i in range(len(count_types)))
                 cursor.execute(
-                    f"select recordnum from tc_header where type in ({bind_names})",
+                    f"select recordnum from tc_header where type in ({bind_names}) order by recordnum desc",
                     count_types,
                 )
 
