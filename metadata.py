@@ -30,47 +30,50 @@ class Metadata(BaseModel):
 
     RECORDNUM: int = Field(alias="record_num")
     SOURCE: Optional[str]
-    COUNTERID: Optional[str] = Field(alias="counter_id")
-    STATIONID: Optional[str] = Field(alias="station_id")
     count_type: Optional[CountKind] = None
-    TYPE: Optional[
-        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
-    ] = Field(alias="count_type")
-    SETDATE: Optional[datetime.date] = Field(alias="set_date")
-    PRJ: Optional[str] = Field(alias="project")
-    PROGRAM: Optional[str]
-    BIKEPEDGROUP: Optional[str] = Field(alias="group")
-    BIKEPEDFACILITY: Optional[str] = Field(alias="facility")
-    SR: Optional[str]
-    SEG: Optional[str]
-    OFFSET: Optional[str]
-    SRI: Optional[str]
-    MP: Optional[str]
-    LATITUDE: Optional[float]
-    LONGITUDE: Optional[float]
-    MCD: Optional[str]
-    municipality: Optional[str] = None
-    county: Optional[str] = None
-    state: Optional[str] = None
-    ROUTE: Optional[int]
-    ROAD: Optional[str]
-    RDPREFIX: Optional[str] = Field(alias="road_prefix")
-    RDSUFFIX: Optional[str] = Field(alias="road_suffix")
-    ISURBAN: Optional[str] = Field(alias="is_urban")
-    SIDEWALK: Optional[str]
-    CLDIR1: Optional[str] = Field(alias="lane1_dir")
-    CLDIR2: Optional[str] = Field(alias="lane2_dir")
-    CLDIR3: Optional[str] = Field(alias="lane3_dir")
-    CNTDIR: Optional[str] = Field(alias="count_direction")
-    TRAFDIR: Optional[str] = Field(alias="traffic_direction")
-    FC: Optional[int] = Field(alias="functional_class")
-    SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
+    sub_type: Optional[VehicleCountKind] = None
     AADV: Optional[int]
     AM_PEAK_VOLUME: Optional[int]
     AVG_AM_MAX_PERCENT: Optional[float]
     PM_PEAK_VOLUME: Optional[int]
     AVG_PM_MAX_PERCENT: Optional[float]
+    CNTDIR: Optional[str] = Field(alias="count_direction")
+    TRAFDIR: Optional[str] = Field(alias="traffic_direction")
+    CLDIR1: Optional[str] = Field(alias="lane1_dir")
+    CLDIR2: Optional[str] = Field(alias="lane2_dir")
+    CLDIR3: Optional[str] = Field(alias="lane3_dir")
+    SPEEDLIMIT: Optional[int] = Field(alias="speed_limit")
+    MCD: Optional[str]
+    state: Optional[str] = None
+    county: Optional[str] = None
+    municipality: Optional[str] = None
+    FROMLMT: Optional[str] = Field(alias="from_lmt")
+    TOLMT: Optional[str] = Field(alias="to_lmt")
+    LATITUDE: Optional[float]
+    LONGITUDE: Optional[float]
+    ISURBAN: Optional[str] = Field(alias="is_urban")
+    FC: Optional[int] = Field(alias="functional_class")
+    MP: Optional[str]
+    OFFSET: Optional[str]
+    ROAD: Optional[str]
+    RDPREFIX: Optional[str] = Field(alias="road_prefix")
+    RDSUFFIX: Optional[str] = Field(alias="road_suffix")
+    ROUTE: Optional[int]
+    SEG: Optional[str]
+    SIDEWALK: Optional[str]
+    SR: Optional[str]
+    SRI: Optional[str]
+    COUNTERID: Optional[str] = Field(alias="counter_id")
+    STATIONID: Optional[str] = Field(alias="station_id")
+    PRJ: Optional[str] = Field(alias="project")
+    PROGRAM: Optional[str]
+    BIKEPEDFACILITY: Optional[str] = Field(alias="facility")
+    BIKEPEDGROUP: Optional[str] = Field(alias="group")
+    SETDATE: Optional[datetime.date] = Field(alias="set_date")
     COMMENTS: Optional[str] = Field(alias="comments")
+    _TYPE: Optional[
+        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
+    ]
     _STATUS: Optional[str]
 
     class Config:
@@ -89,13 +92,16 @@ router = APIRouter()
     summary="Get count numbers, optionally by type/subtype, in JSON format",
 )
 def get_count_numbers(
-    count_type: Optional[CountKind] = None, sub_type: Optional[VehicleCountKind] = None
+    count_type: Optional[CountKind] = None,
+    sub_type: Optional[
+        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
+    ] = None,
 ) -> list[int]:
     """
     Get the record numbers of all counts, in descending order.
 
-    Optionally refine by count type or by subtype (for vehicles) with query parameters.
-    For example: `?count_type=vehicle&sub_type=Class` or `?count_type=bicycle`.
+    Optionally refine by count type or by subtype with query parameters.
+    For example: `?count_type=vehicle` or `?sub_type=Bicycle 2`.
     """
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
@@ -170,8 +176,21 @@ def get_metadata(num: int) -> Metadata:
             if metadata["STATUS"] != "publish":
                 raise NotPublishedError
 
+            count_type = None
+            if metadata["TYPE"] in [each.value for each in BicycleCountKind]:
+                count_type = CountKind.bicycle
+            elif metadata["TYPE"] in [each.value for each in PedestrianCountKind]:
+                count_type = CountKind.pedestrian
+            elif metadata["TYPE"] in [each.value for each in VehicleCountKind]:
+                count_type = CountKind.vehicle
+            elif metadata["TYPE"] in [each.value for each in NotInDatabaseCountKind]:
+                count_type = CountKind.no_data
+            sub_type = metadata["TYPE"]
+
             try:
                 metadata = Metadata(**metadata)
+                metadata.count_type = count_type
+                metadata.sub_type = sub_type
             except ValidationError:
                 raise
 
@@ -196,14 +215,5 @@ def get_metadata(num: int) -> Metadata:
                     metadata.municipality = mcd_data["MCDNAME"]
                     metadata.county = mcd_data["COUNTY"]
                     metadata.state = mcd_data["STATE"]
-
-            if metadata.TYPE in [each.value for each in BicycleCountKind]:
-                metadata.count_type = CountKind.bicycle
-            elif metadata.TYPE in [each.value for each in PedestrianCountKind]:
-                metadata.count_type = CountKind.pedestrian
-            elif metadata.TYPE in [each.value for each in VehicleCountKind]:
-                metadata.count_type = CountKind.vehicle
-            elif metadata.TYPE in [each.value for each in NotInDatabaseCountKind]:
-                metadata.count_type = CountKind.no_data
 
             return metadata
