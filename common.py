@@ -1,3 +1,4 @@
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 
@@ -6,7 +7,15 @@ class ApiError(Exception):
 
 
 class NotFoundError(ApiError):
-    pass
+    status_code = 404
+    message = "Record not found."
+    json = JSONResponse(status_code=404, content={"message": message})
+
+
+class NotPublishedError(ApiError):
+    status_code = 403
+    message = "Requested record is not published."
+    json = JSONResponse(status_code=status_code, content={"message": message})
 
 
 class Error(BaseModel):

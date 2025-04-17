@@ -8,9 +8,9 @@ from typing import Any, Optional
 import oracledb
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ValidationError, AliasGenerator
+from pydantic import AliasGenerator, BaseModel, ValidationError
 
-from common import NotFoundError, responses
+from common import NotFoundError, NotPublishedError, responses
 from config import PASSWORD, USER
 from metadata import Metadata, get_metadata
 
@@ -60,14 +60,8 @@ class HourlyClassRecord(BaseModel):
     counts: list[HourlyClass]
 
 
-def get_hourly_class(num: int) -> Optional[HourlyClassRecord]:
-    try:
-        metadata = get_metadata(num)
-    except ValidationError:
-        raise
-
-    if metadata is None:
-        return None
+def get_hourly_class(num: int) -> HourlyClassRecord:
+    metadata = get_metadata(num)
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
@@ -116,12 +110,16 @@ def get_hourly_class(num: int) -> Optional[HourlyClassRecord]:
 def get_hourly_class_json(num: int) -> Any:
     try:
         record = get_hourly_class(num)
+    except NotFoundError as e:
+        return e.json
+    except NotPublishedError as e:
+        return e.json
     except ValidationError as e:
         logger.error(e)
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
-
-    if record is None:
-        return JSONResponse(status_code=404, content={"message": "Record not found"})
+    except Exception as e:
+        logger.error(e)
+        return JSONResponse(status_code=500, content={"message": "Unknown error occurred."})
 
     return record
 
@@ -165,19 +163,28 @@ def get_hourly_class_csv(num: int) -> Any:
             if csv_created_date < aadv_created_date:
                 try:
                     create_hourly_class_csv(csv_file, num)
-                except NotFoundError:
-                    return JSONResponse(status_code=404, content={"message": "Record not found"})
+                except NotFoundError as e:
+                    return e.json
+                except NotPublishedError as e:
+                    return e.json
                 except ValidationError as e:
                     logger.error(e)
                     return JSONResponse(
                         status_code=500, content={"message": "Unexpected data type found."}
                     )
+                except Exception as e:
+                    logger.error(e)
+                    return JSONResponse(
+                        status_code=500, content={"message": "Unknown error occurred."}
+                    )
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
                 create_hourly_class_csv(csv_file, num)
-            except NotFoundError:
-                return JSONResponse(status_code=404, content={"message": "Record not found"})
+            except NotFoundError as e:
+                return e.json
+            except NotPublishedError as e:
+                return e.json
             except ValidationError as e:
                 logger.error(e)
                 return JSONResponse(
@@ -185,21 +192,21 @@ def get_hourly_class_csv(num: int) -> Any:
                 )
             except Exception as e:
                 logger.error(e)
-                return JSONResponse(
-                    status_code=500, content={"message": "Unhandled error occurred."}
-                )
+                return JSONResponse(status_code=500, content={"message": "Unknown error occurred."})
     # No CSV has been created yet, so create one.
     else:
         try:
             create_hourly_class_csv(csv_file, num)
-        except NotFoundError:
-            return JSONResponse(status_code=404, content={"message": "Record not found"})
+        except NotFoundError as e:
+            return e.json
+        except NotPublishedError as e:
+            return e.json
         except ValidationError as e:
             logger.error(e)
             return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
         except Exception as e:
             logger.error(e)
-            return JSONResponse(status_code=500, content={"message": "Unhandled error occurred."})
+            return JSONResponse(status_code=500, content={"message": "Unknown error occurred."})
 
     return FileResponse(csv_file)
 

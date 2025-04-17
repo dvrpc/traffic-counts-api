@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import AliasGenerator, BaseModel, Field, ValidationError
 
-from common import responses
+from common import NotFoundError, NotPublishedError, responses
 from config import PASSWORD, USER
 from counts import (
     BicycleCountKind,
@@ -71,6 +71,7 @@ class Metadata(BaseModel):
     PM_PEAK_VOLUME: Optional[int]
     AVG_PM_MAX_PERCENT: Optional[float]
     COMMENTS: Optional[str] = Field(alias="comments")
+    _STATUS: Optional[str]
 
     class Config:
         validate_by_name = True
@@ -130,24 +131,28 @@ def get_count_numbers(
 
 
 @router.get("/records/{num}", responses=responses, summary="Get metadata of a count in JSON format")
-def get_metadata_json(num: int) -> Optional[Metadata]:
+def get_metadata_json(num: int) -> Metadata:
     """
     Get metadata for a count.
     """
 
     try:
         metadata = get_metadata(num)
+    except NotFoundError as e:
+        return e.json
+    except NotPublishedError as e:
+        return e.json
     except ValidationError as e:
         logger.error(e)
         return JSONResponse(status_code=500, content={"message": "Unexpected data type found."})
-
-    if metadata is None:
-        return None
+    except Exception as e:
+        logger.error(e)
+        return JSONResponse(status_code=500, content={"message": "Unknown error occurred."})
 
     return metadata
 
 
-def get_metadata(num: int) -> Optional[Metadata]:
+def get_metadata(num: int) -> Metadata:
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
             # get overall count metadata
@@ -160,7 +165,11 @@ def get_metadata(num: int) -> Optional[Metadata]:
             metadata = cursor.fetchone()
 
             if metadata is None:
-                return None
+                raise NotFoundError
+
+            if metadata["STATUS"] != "publish":
+                raise NotPublishedError
+
             try:
                 metadata = Metadata(**metadata)
             except ValidationError:
