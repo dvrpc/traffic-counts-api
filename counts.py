@@ -1,5 +1,5 @@
 from enum import Enum
-
+from itertools import chain
 
 # The kinds of counts in the tc_counttype table are grouped below into various
 # CountKinds according to their structure (or excluded altogether if not in database, which
@@ -41,3 +41,24 @@ class CountKind(str, Enum):
     bicycle = "bicycle"
     pedestrian = "pedestrian"
     no_data = "count data not in database"
+
+
+class AllCountKinds(Enum):
+    """All kinds of counts."""
+
+    # This is for use in metadata.py's /record endpoint. Using `Union` is the obvious way to do
+    # this, but FastAPI then only includes the first enum from that Union in the OpenAPI docs.
+    # From <https://stackoverflow.com/q/71527981>
+
+    _ignore_ = "member cls"
+    cls = vars()
+    for member in chain(
+        list(BicycleCountKind),
+        list(PedestrianCountKind),
+        list(VehicleCountKind),
+        list(NotInDatabaseCountKind),
+    ):
+        cls[member.name] = member.value
+
+    def __str__(self):
+        return str(self.value)

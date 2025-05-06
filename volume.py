@@ -41,18 +41,18 @@ def get_hourly_volume(num: int) -> HourlyVolumeRecord:
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
-            if metadata.TYPE in (
+            if metadata.sub_type in (
                 [each.value for each in BicycleCountKind]
                 + [each.value for each in PedestrianCountKind]
                 + [each.value for each in VehicleCountKind]
             ):
-                if metadata.TYPE in [each.value for each in BicycleCountKind]:
+                if metadata.sub_type in [each.value for each in BicycleCountKind]:
                     tc_table = "tc_bikecount_new"
 
-                if metadata.TYPE in [each.value for each in PedestrianCountKind]:
+                if metadata.sub_type in [each.value for each in PedestrianCountKind]:
                     tc_table = "tc_pedcount_new"
 
-                if metadata.TYPE in [each.value for each in VehicleCountKind]:
+                if metadata.sub_type in [each.value for each in VehicleCountKind]:
                     tc_table = "tc_volcount_new"
 
                 cursor.execute(
@@ -74,10 +74,10 @@ def get_hourly_volume(num: int) -> HourlyVolumeRecord:
                 )
 
             # These are not in the database but just in static pdf.
-            elif metadata.TYPE in [each.value for each in NotInDatabaseCountKind]:
+            elif metadata.sub_type in [each.value for each in NotInDatabaseCountKind]:
                 metadata.count_type = CountKind.no_data
-                # the subtype in the url is just the value of TYPE without spaces
-                sub_type_in_url = metadata.TYPE.value.replace(" ", "")
+                # the subtype in the url is just the value of sub_type without spaces
+                sub_type_in_url = metadata.sub_type.value.replace(" ", "")
                 static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.PDF"
                 hourly_volume = HourlyVolumeRecord(
                     metadata=metadata, static_pdf=static_pdf, counts=[]

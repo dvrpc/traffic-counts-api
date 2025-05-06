@@ -15,6 +15,7 @@ from counts import (
     NotInDatabaseCountKind,
     PedestrianCountKind,
     VehicleCountKind,
+    AllCountKinds,
 )
 
 logger = logging.getLogger("api")
@@ -31,7 +32,9 @@ class Metadata(BaseModel):
     RECORDNUM: int = Field(alias="record_num")
     SOURCE: Optional[str]
     count_type: Optional[CountKind] = None
-    sub_type: Optional[VehicleCountKind] = None
+    sub_type: Optional[
+        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
+    ] = None
     AADV: Optional[int]
     AM_PEAK_VOLUME: Optional[int]
     AVG_AM_MAX_PERCENT: Optional[float]
@@ -93,9 +96,7 @@ router = APIRouter()
 )
 def get_count_numbers(
     count_type: Optional[CountKind] = None,
-    sub_type: Optional[
-        Union[BicycleCountKind, PedestrianCountKind, VehicleCountKind, NotInDatabaseCountKind]
-    ] = None,
+    sub_type: Optional[AllCountKinds] = None,
 ) -> list[int]:
     """
     Get the record numbers of all counts, in descending order.
@@ -111,7 +112,7 @@ def get_count_numbers(
                 cursor.execute("select recordnum from tc_header")
             else:
                 if sub_type:
-                    count_types = [sub_type]
+                    count_types = [sub_type.value]
                 elif count_type == CountKind.vehicle:
                     count_types = [each.value for each in VehicleCountKind]
                 elif count_type == CountKind.bicycle:
