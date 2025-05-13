@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import AliasGenerator, BaseModel, ValidationError
 
-from common import NotFoundError, NotPublishedError, responses
+from common import NotFoundError, NotPublishedError, responses, get_suppressed_dates
 from config import PASSWORD, USER
 from metadata import Metadata, get_metadata
 
@@ -57,10 +57,11 @@ class HourlyClassRecord(BaseModel):
 
     metadata: Metadata
     static_pdf: Optional[str]
+    suppressed_dates: list[datetime.date]
     counts: list[HourlyClass]
 
 
-def get_hourly_class(num: int) -> HourlyClassRecord:
+def get_hourly_class(num: int, include_suppressed: bool) -> HourlyClassRecord:
     metadata = get_metadata(num)
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
@@ -96,7 +97,21 @@ def get_hourly_class(num: int) -> HourlyClassRecord:
             cursor.rowfactory = lambda *args: dict(zip(columns, args))
             count_data = cursor.fetchall()
 
-            hourly_class = HourlyClassRecord(metadata=metadata, static_pdf=None, counts=count_data)
+            suppressed_dates = get_suppressed_dates(cursor, num)
+
+            if not include_suppressed:
+                count_data = [
+                    count
+                    for count in count_data
+                    if count["DATETIME"].date() not in suppressed_dates
+                ]
+
+            hourly_class = HourlyClassRecord(
+                metadata=metadata,
+                static_pdf=None,
+                suppressed_dates=suppressed_dates,
+                counts=count_data,
+            )
 
     return hourly_class
 
@@ -107,9 +122,9 @@ def get_hourly_class(num: int) -> HourlyClassRecord:
     response_model=HourlyClassRecord,
     summary="Get hourly volume by class of a count in JSON format",
 )
-def get_hourly_class_json(num: int) -> Any:
+def get_hourly_class_json(num: int, include_suppressed: bool = False) -> Any:
     try:
-        record = get_hourly_class(num)
+        record = get_hourly_class(num, include_suppressed)
     except NotFoundError as e:
         return e.json
     except NotPublishedError as e:
@@ -130,7 +145,7 @@ def get_hourly_class_json(num: int) -> Any:
     response_model=HourlyClassRecord,
     summary="Get hourly volume by class of a count as a CSV file",
 )
-def get_hourly_class_csv(num: int) -> Any:
+def get_hourly_class_csv(num: int, include_suppressed: bool = False) -> Any:
     """
     Metadata will be placed in the first two rows, followed by a blank line, followed by the
     data from the count.
@@ -162,7 +177,7 @@ def get_hourly_class_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_hourly_class_csv(csv_file, num)
+                    create_hourly_class_csv(csv_file, num, include_suppressed)
                 except NotFoundError as e:
                     return e.json
                 except NotPublishedError as e:
@@ -180,7 +195,7 @@ def get_hourly_class_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_hourly_class_csv(csv_file, num)
+                create_hourly_class_csv(csv_file, num, include_suppressed)
             except NotFoundError as e:
                 return e.json
             except NotPublishedError as e:
@@ -196,7 +211,7 @@ def get_hourly_class_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_hourly_class_csv(csv_file, num)
+            create_hourly_class_csv(csv_file, num, include_suppressed)
         except NotFoundError as e:
             return e.json
         except NotPublishedError as e:
@@ -211,11 +226,11 @@ def get_hourly_class_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_hourly_class_csv(csv_path: Path, num: int):
+def create_hourly_class_csv(csv_path: Path, num: int, include_suppressed: bool):
     """
     Create a CSV file of hourly volume by class of a count.
     """
-    record = get_hourly_class(num)
+    record = get_hourly_class(num, include_suppressed)
 
     if record is None:
         raise NotFoundError

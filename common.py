@@ -1,4 +1,6 @@
+import datetime
 from fastapi.responses import JSONResponse
+from oracledb import Cursor
 from pydantic import BaseModel
 
 
@@ -27,3 +29,15 @@ responses = {
     404: {"model": Error, "description": "Not Found"},
     500: {"model": Error, "description": "Internal Server Error"},
 }
+
+
+def get_suppressed_dates(cursor: Cursor, num: int) -> list[datetime.date]:
+    """Get list of all dates that contain data that should be suppressed for a count."""
+
+    cursor.execute(
+        "select distinct(countdate) from tc_countdate where recordnum = :num and isfulldate = 'No'",
+        num=num,
+    )
+    data = cursor.fetchall()
+    data = [x[0].date() for x in data]
+    return data

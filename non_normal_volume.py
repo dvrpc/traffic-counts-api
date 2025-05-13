@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from common import NotFoundError, NotPublishedError, responses
+from common import NotFoundError, NotPublishedError, responses, get_suppressed_dates
 from config import PASSWORD, USER
 from counts import (
     BicycleCountKind,
@@ -26,7 +26,7 @@ logger = logging.getLogger("api")
 
 
 class NonNormalHourlyCount(BaseModel):
-    date: datetime.date = None
+    date: datetime.date
     AM12: Optional[int] = None
     AM1: Optional[int] = None
     AM2: Optional[int] = None
@@ -61,10 +61,11 @@ class NonNormalHourlyVolumeRecord(BaseModel):
 
     metadata: Metadata
     static_pdf: Optional[str]
+    suppressed_dates: list[datetime.date]
     counts: list[NonNormalHourlyCount]
 
 
-def get_hourly_volume(num: int) -> NonNormalHourlyVolumeRecord:
+def get_hourly_volume(num: int, include_suppressed: bool) -> NonNormalHourlyVolumeRecord:
     am_pm_map = {
         "00": "AM12",
         "01": "AM1",
@@ -96,18 +97,18 @@ def get_hourly_volume(num: int) -> NonNormalHourlyVolumeRecord:
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
-            if metadata.TYPE in (
+            if metadata.sub_type in (
                 [each.value for each in BicycleCountKind]
                 + [each.value for each in PedestrianCountKind]
                 + [each.value for each in VehicleCountKind]
             ):
-                if metadata.TYPE in [each.value for each in BicycleCountKind]:
+                if metadata.sub_type in [each.value for each in BicycleCountKind]:
                     tc_table = "tc_bikecount_new"
 
-                if metadata.TYPE in [each.value for each in PedestrianCountKind]:
+                if metadata.sub_type in [each.value for each in PedestrianCountKind]:
                     tc_table = "tc_pedcount_new"
 
-                if metadata.TYPE in [each.value for each in VehicleCountKind]:
+                if metadata.sub_type in [each.value for each in VehicleCountKind]:
                     tc_table = "tc_volcount_new"
 
                 cursor.execute(
@@ -165,17 +166,26 @@ def get_hourly_volume(num: int) -> NonNormalHourlyVolumeRecord:
 
                 # change this dict of dicts into list of Counts and add to record
                 counts = [NonNormalHourlyCount(date=k, **v) for k, v in counts.items()]
+
+                suppressed_dates = get_suppressed_dates(cursor, num)
+
+                if not include_suppressed:
+                    counts = [count for count in counts if count.date not in suppressed_dates]
+
                 hourly_volume = NonNormalHourlyVolumeRecord(
-                    metadata=metadata, static_pdf=None, counts=counts
+                    metadata=metadata,
+                    static_pdf=None,
+                    suppressed_dates=suppressed_dates,
+                    counts=counts,
                 )
 
             # these are not in the database but just in static pdf
-            elif metadata.TYPE in [each.value for each in NotInDatabaseCountKind]:
+            elif metadata.sub_type in [each.value for each in NotInDatabaseCountKind]:
                 # the subtype in the url is just the value of TYPE without spaces
-                sub_type_in_url = metadata.TYPE.value.replace(" ", "")
+                sub_type_in_url = metadata.sub_type.value.replace(" ", "")
                 static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.PDF"
                 hourly_volume = NonNormalHourlyVolumeRecord(
-                    metadata=metadata, static_pdf=static_pdf, counts=[]
+                    metadata=metadata, static_pdf=static_pdf, suppressed_dates=[], counts=[]
                 )
 
     return hourly_volume
@@ -187,9 +197,9 @@ def get_hourly_volume(num: int) -> NonNormalHourlyVolumeRecord:
     response_model=NonNormalHourlyVolumeRecord,
     summary="Get non-normal count data (by hours in a day) in JSON format",
 )
-def get_hourly_volume_json(num: int) -> Any:
+def get_hourly_volume_json(num: int, include_suppressed: bool = False) -> Any:
     try:
-        record = get_hourly_volume(num)
+        record = get_hourly_volume(num, include_suppressed)
     except NotFoundError as e:
         return e.json
     except NotPublishedError as e:
@@ -210,7 +220,7 @@ def get_hourly_volume_json(num: int) -> Any:
     response_model=NonNormalHourlyVolumeRecord,
     summary="Get non-normal count data (by hours in a day) as a CSV file",
 )
-def get_hourly_volume_csv(num: int) -> Any:
+def get_hourly_volume_csv(num: int, include_suppressed: bool = False) -> Any:
     """
     Metadata will be placed in the first two rows, followed by a blank line, followed by the
     data from the count.
@@ -242,7 +252,7 @@ def get_hourly_volume_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_hourly_nonnormal_csv(csv_file, num)
+                    create_hourly_nonnormal_csv(csv_file, num, include_suppressed)
                 except NotFoundError as e:
                     return e.json
                 except NotPublishedError as e:
@@ -260,7 +270,7 @@ def get_hourly_volume_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_hourly_nonnormal_csv(csv_file, num)
+                create_hourly_nonnormal_csv(csv_file, num, include_suppressed)
             except NotFoundError as e:
                 return e.json
             except NotPublishedError as e:
@@ -276,7 +286,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_hourly_nonnormal_csv(csv_file, num)
+            create_hourly_nonnormal_csv(csv_file, num, include_suppressed)
         except NotFoundError as e:
             return e.json
         except NotPublishedError as e:
@@ -291,11 +301,11 @@ def get_hourly_volume_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_hourly_nonnormal_csv(csv_path: Path, num: int):
+def create_hourly_nonnormal_csv(csv_path: Path, num: int, include_suppressed: bool):
     """
     Create a CSV file of non-normal hourly data.
     """
-    record = get_hourly_volume(num)
+    record = get_hourly_volume(num, include_suppressed)
 
     if record is None:
         raise NotFoundError

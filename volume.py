@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from common import NotFoundError, NotPublishedError, responses
+from common import NotFoundError, NotPublishedError, responses, get_suppressed_dates
 from config import PASSWORD, USER
 from counts import (
     BicycleCountKind,
@@ -33,10 +33,11 @@ class HourlyVolumeRecord(BaseModel):
 
     metadata: Metadata
     static_pdf: Optional[str]
+    suppressed_dates: list[datetime.date]
     counts: dict[datetime.datetime, int]
 
 
-def get_hourly_volume(num: int) -> HourlyVolumeRecord:
+def get_hourly_volume(num: int, include_suppressed: bool) -> HourlyVolumeRecord:
     metadata = get_metadata(num)
 
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
@@ -69,8 +70,18 @@ def get_hourly_volume(num: int) -> HourlyVolumeRecord:
                 count_data = cursor.fetchall()
                 count_data = dict((x[0], x[1]) for x in count_data)
 
+                suppressed_dates = get_suppressed_dates(cursor, num)
+
+                if not include_suppressed:
+                    count_data = {
+                        k: v for k, v in count_data.items() if k.date() not in suppressed_dates
+                    }
+
                 hourly_volume = HourlyVolumeRecord(
-                    metadata=metadata, static_pdf=None, counts=count_data
+                    metadata=metadata,
+                    static_pdf=None,
+                    suppressed_dates=suppressed_dates,
+                    counts=count_data,
                 )
 
             # These are not in the database but just in static pdf.
@@ -80,7 +91,7 @@ def get_hourly_volume(num: int) -> HourlyVolumeRecord:
                 sub_type_in_url = metadata.sub_type.value.replace(" ", "")
                 static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.PDF"
                 hourly_volume = HourlyVolumeRecord(
-                    metadata=metadata, static_pdf=static_pdf, counts=[]
+                    metadata=metadata, static_pdf=static_pdf, suppressed_dates=[], counts=[]
                 )
 
     return hourly_volume
@@ -92,9 +103,9 @@ def get_hourly_volume(num: int) -> HourlyVolumeRecord:
     response_model=HourlyVolumeRecord,
     summary="Get hourly volume of a count in JSON format",
 )
-def get_hourly_volume_json(num: int) -> Any:
+def get_hourly_volume_json(num: int, include_suppressed: bool = False) -> Any:
     try:
-        record = get_hourly_volume(num)
+        record = get_hourly_volume(num, include_suppressed)
     except NotFoundError as e:
         return e.json
     except NotPublishedError as e:
@@ -115,7 +126,7 @@ def get_hourly_volume_json(num: int) -> Any:
     response_model=HourlyVolumeRecord,
     summary="Get hourly volume of a count as a CSV file",
 )
-def get_hourly_volume_csv(num: int) -> Any:
+def get_hourly_volume_csv(num: int, include_suppressed: bool = False) -> Any:
     """
     Metadata will be placed in the first two rows, followed by a blank line, followed by the
     data from the count.
@@ -147,7 +158,7 @@ def get_hourly_volume_csv(num: int) -> Any:
 
             if csv_created_date < aadv_created_date:
                 try:
-                    create_hourly_csv(csv_file, num)
+                    create_hourly_csv(csv_file, num, include_suppressed)
                 except NotFoundError as e:
                     return e.json
                 except NotPublishedError as e:
@@ -166,7 +177,7 @@ def get_hourly_volume_csv(num: int) -> Any:
         # If any exception occurred above that wasn't already handled, just create the CSV file.
         except Exception:
             try:
-                create_hourly_csv(csv_file, num)
+                create_hourly_csv(csv_file, num, include_suppressed)
             except NotFoundError as e:
                 return e.json
             except NotPublishedError as e:
@@ -182,7 +193,7 @@ def get_hourly_volume_csv(num: int) -> Any:
     # No CSV has been created yet, so create one.
     else:
         try:
-            create_hourly_csv(csv_file, num)
+            create_hourly_csv(csv_file, num, include_suppressed)
         except NotFoundError as e:
             return e.json
         except NotPublishedError as e:
@@ -197,11 +208,11 @@ def get_hourly_volume_csv(num: int) -> Any:
     return FileResponse(csv_file)
 
 
-def create_hourly_csv(csv_path: Path, num: int):
+def create_hourly_csv(csv_path: Path, num: int, include_suppressed: bool):
     """
     Create a CSV file of hourly volume data.
     """
-    record = get_hourly_volume(num)
+    record = get_hourly_volume(num, include_suppressed)
 
     if record is None:
         raise NotFoundError
@@ -215,8 +226,15 @@ def create_hourly_csv(csv_path: Path, num: int):
         writer.writeheader()
         writer.writerow(record.metadata.model_dump(by_alias=True))
 
-        # Write counts.
         writer = csv.writer(f)
+
+        # Write suppressed dates.
+        writer.writerow("")
+        writer.writerow(["suppressed_dates:"])
+        for date in record.suppressed_dates:
+            writer.writerow([date])
+
+        # Write counts.
         writer.writerow("")
         writer.writerow(["datetime", "volume"])
 
