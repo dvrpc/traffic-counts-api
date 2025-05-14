@@ -235,24 +235,30 @@ def create_hourly_class_csv(csv_path: Path, num: int, include_suppressed: bool):
     if record is None:
         raise NotFoundError
 
-    # Create CSV, save it, return it.
+    # Create and save CSV.
     with open(csv_path, "w", newline="") as f:
-        # Get and write metadata field names and values.
-        fieldnames_metadata = list(Metadata.model_json_schema()["properties"].keys())
-        fieldnames_metadata = [field.lower() for field in fieldnames_metadata]
-        writer = csv.DictWriter(f, fieldnames=fieldnames_metadata, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerow(record.metadata.model_dump(by_alias=True))
-
-        # Create new writer, just to write an empty line to the same file.
         writer = csv.writer(f)
+
+        # Write metadata field names and values.
+        writer.writerow(record.metadata.model_dump(by_alias=True))
+        writer.writerow([v for k, v in record.metadata])
+
+        # Write suppressed dates.
         writer.writerow("")
+        writer.writerow(["suppressed_dates:"])
+        for date in record.suppressed_dates:
+            writer.writerow([date])
 
         # Get and write count field names and values; use new writer to add it to the same file.
-        fieldnames_count = list(HourlyClass.schema()["properties"].keys())
-        writer = csv.DictWriter(f, fieldnames=fieldnames_count)
-        writer.writeheader()
+        writer.writerow("")
+        writer.writerow(record.counts[0].model_dump(by_alias=True))
         for count in record.counts:
-            writer.writerow(count.dict(by_alias=True))
+            writer.writerow([v for k, v in count])
+
+        # Add note about unclassified vehicles.
+        writer.writerow("")
+        note = ["" for _ in range(15)]
+        note.append("Note: Unclassified vehicles are included in the 'passenger_cars' count.")
+        writer.writerow(note)
 
     return

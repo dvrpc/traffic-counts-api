@@ -209,24 +209,19 @@ def get_hourly_volume_csv(num: int, include_suppressed: bool = False) -> Any:
 
 
 def create_hourly_csv(csv_path: Path, num: int, include_suppressed: bool):
-    """
-    Create a CSV file of hourly volume data.
-    """
+    """Create a CSV file of hourly volume data."""
     record = get_hourly_volume(num, include_suppressed)
 
     if record is None:
         raise NotFoundError
 
-    # create CSV, save it, return it
+    # Create and save CSV.
     with open(csv_path, "w", newline="") as f:
-        # Get and write metadata field names and values.
-        fieldnames_metadata = list(Metadata.model_json_schema()["properties"].keys())
-        fieldnames_metadata = [field.lower() for field in fieldnames_metadata]
-        writer = csv.DictWriter(f, fieldnames=fieldnames_metadata, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerow(record.metadata.model_dump(by_alias=True))
-
         writer = csv.writer(f)
+
+        # Write metadata field names and values.
+        writer.writerow(record.metadata.model_dump(by_alias=True))
+        writer.writerow([v for k, v in record.metadata])
 
         # Write suppressed dates.
         writer.writerow("")
@@ -237,7 +232,6 @@ def create_hourly_csv(csv_path: Path, num: int, include_suppressed: bool):
         # Write counts.
         writer.writerow("")
         writer.writerow(["datetime", "volume"])
-
         for k, v in record.counts.items():
             writer.writerow([k, v])
 
