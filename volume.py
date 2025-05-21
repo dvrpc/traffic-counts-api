@@ -85,13 +85,13 @@ def get_hourly_volume(num: int, include_suppressed: bool) -> HourlyVolumeRecord:
                 )
 
             # These are not in the database but just in static pdf.
-            elif metadata.sub_type in [each.value for each in NotInDatabaseCountKind]:
+            elif metadata.sub_type in [each for each in NotInDatabaseCountKind]:
                 metadata.count_type = CountKind.no_data
                 # the subtype in the url is just the value of sub_type without spaces
-                sub_type_in_url = metadata.sub_type.value.replace(" ", "")
-                static_pdf = f"https://www.dvrpc.org/asp/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.PDF"
+                sub_type_in_url = metadata.sub_type.replace(" ", "")
+                static_pdf = f"https://idnryib36jqh.objectstorage.us-ashburn-1.oci.customer-oci.com/p/CRSJ63CubnhBU9YppzcOZJuiALo2cVZsKVCBEEc_zt2UkPrQJaVId3Q5G2iQfiMB/n/idnryib36jqh/b/web-static-content/o/TrafficCountPDF/{sub_type_in_url}/{metadata.RECORDNUM}.pdf"
                 hourly_volume = HourlyVolumeRecord(
-                    metadata=metadata, static_pdf=static_pdf, suppressed_dates=[], counts=[]
+                    metadata=metadata, static_pdf=static_pdf, suppressed_dates=[], counts={}
                 )
 
     return hourly_volume
