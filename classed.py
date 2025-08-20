@@ -155,7 +155,11 @@ def get_hourly_class_csv(num: int, include_suppressed: bool = False) -> Any:
         Path("csv/class").mkdir()
     except FileExistsError:
         pass
-    csv_file = Path(f"csv/class/{num}.csv")
+
+    if include_suppressed:
+        csv_file = Path(f"csv/class/{num}_suppressed_included.csv")
+    else:
+        csv_file = Path(f"csv/class/{num}_suppressed_excluded.csv")
 
     if csv_file.exists():
         # If older than most recent AADV calculation, we have to recreate it.
@@ -245,7 +249,11 @@ def create_hourly_class_csv(csv_path: Path, num: int, include_suppressed: bool):
 
         # Write suppressed dates.
         writer.writerow("")
-        writer.writerow(["suppressed_dates:"])
+        if include_suppressed:
+            writer.writerow(["suppressed dates (included below):"])
+        else:
+            writer.writerow(["suppressed dates (not included below):"])
+
         for date in record.suppressed_dates:
             writer.writerow([date])
 
