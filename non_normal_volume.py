@@ -227,7 +227,8 @@ def get_hourly_volume_csv(num: int, include_suppressed: bool = False) -> Any:
     """
     # Create csv/ folder if it doesn't exist.
     try:
-        Path("csv/non_normal_volume").mkdir()
+        Path("csv/non_normal_volume", parents=True).mkdir()
+
     except FileExistsError:
         pass
 

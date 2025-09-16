@@ -152,7 +152,8 @@ def get_hourly_class_csv(num: int, include_suppressed: bool = False) -> Any:
     """
     # Create csv/ folder if it doesn't exist.
     try:
-        Path("csv/class").mkdir()
+        Path("csv/class", parents=True).mkdir()
+
     except FileExistsError:
         pass
 
