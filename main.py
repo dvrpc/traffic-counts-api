@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, List, Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, FileResponse
@@ -173,6 +173,7 @@ app = FastAPI(
     version="1.0",
     openapi_url="/api/traffic-counts/v1/openapi.json",
     docs_url="/api/traffic-counts/v1/docs",
+    deprecated=True,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -387,13 +388,17 @@ def get_record(num: int) -> Optional[Record]:
     responses=responses,  # type: ignore
     summary="Get record numbers",
 )
-def get_record_numbers(count_type: Optional[CountKind] = None):
+def get_record_numbers(response: Response, count_type: Optional[CountKind] = None):
     """
     Get the record numbers of all counts.
 
     Optionally provide the `count_type` query parameter to get record numbers for specific types of
     counts, e.g. `?count_type=bicycle`.
     """
+    response.headers["X-Deprecated-Endpoint"] = (
+        "v1 of this API is deprecated and will be removed in the future. Use v2, e.g. /v2/records."
+    )
+
     with oracledb.connect(user=USER, password=PASSWORD, dsn="dvrpcprod_tp_tls") as connection:
         with connection.cursor() as cursor:
             cursor = connection.cursor()
@@ -431,7 +436,11 @@ def get_record_numbers(count_type: Optional[CountKind] = None):
     response_model=Record,
     summary="Get count data in JSON format",
 )
-def get_record_json(num: int) -> Any:
+def get_record_json(num: int, response: Response) -> Any:
+    response.headers["X-Deprecated-Endpoint"] = (
+        "v1 of this API is deprecated and will be removed in the future. Use v2, e.g. /v2/record/{num}."
+    )
+
     try:
         record = get_record(num)
     except ValidationError:
@@ -449,11 +458,15 @@ def get_record_json(num: int) -> Any:
     response_model=Record,
     summary="Get count data in a CSV file",
 )
-def get_record_csv(num: int) -> Any:
+def get_record_csv(num: int, response: Response) -> Any:
     """
     Metadata will be placed in the first two rows, followed by a blank line, followed by the
     data from the count.
     """
+    response.headers["X-Deprecated-Endpoint"] = (
+        "v1 of this API is deprecated and will be removed in the future. Use v2, e.g. /v2/record/csv/{num}."
+    )
+
     # create csv/ folder if it doesn't exist
     try:
         Path("csv").mkdir()
